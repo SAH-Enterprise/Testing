@@ -4,9 +4,9 @@ from frappe.utils import add_days, nowdate
 
 def _date_group_expr(fieldname, granularity):
 	if granularity == "Weekly":
-		return f"date_format({fieldname}, '%x-%v')"
+		return f"date_format({fieldname}, '%%x-%%v')"
 	if granularity == "Monthly":
-		return f"date_format({fieldname}, '%Y-%m-01')"
+		return f"date_format({fieldname}, '%%Y-%%m-01')"
 	return fieldname
 
 
@@ -294,27 +294,33 @@ def get_dashboard_data(
 		as_dict=True,
 	)
 
-	provider_by_type = frappe.db.sql(
-		f"""
-		select service_provider, service_type, sum(total_amount) as amount
-		from `tabService Billing`
-		where {' and '.join(sb_conditions)}
-		group by service_provider, service_type
-		""",
-		sb_values,
-		as_dict=True,
-	)
+	provider_by_type = []
+	contractor_by_type = []
+	if meal_form_names:
+		provider_by_type = frappe.db.sql(
+			"""
+			select meal_provider as service_provider, meal_type as service_type, sum(total_amount) as amount
+			from `tabMeal Form`
+			where name in %(names)s
+			group by meal_provider, meal_type
+			""",
+			{"names": meal_form_names},
+			as_dict=True,
+		)
 
-	contractor_by_type = frappe.db.sql(
-		f"""
-		select contractor, service_type, sum(total_amount) as amount
-		from `tabService Billing`
-		where {' and '.join(sb_conditions)}
-		group by contractor, service_type
-		""",
-		sb_values,
-		as_dict=True,
-	)
+		contractor_by_type = frappe.db.sql(
+			"""
+			select d.contractor as contractor, mf.meal_type as service_type, sum(d.amount) as amount
+			from `tabDetail` d
+			inner join `tabMeal Form` mf on mf.name = d.parent
+			where d.parenttype = 'Meal Form'
+			and d.parentfield = 'detail'
+			and mf.name in %(names)s
+			group by d.contractor, mf.meal_type
+			""",
+			{"names": meal_form_names},
+			as_dict=True,
+		)
 
 	meal_provider_amount = []
 	if meal_form_names:

@@ -148,7 +148,7 @@ frappe.pages['service-dashboard'].on_page_load = function (wrapper) {
 					</div>
 					<div>
 						<label class="form-label">Billed</label>
-						<select class="form-control" id="sd-billed">
+						<select class="form-control" id="sd-billed-filter">
 							<option value="">All</option>
 							<option value="Billed">Billed</option>
 							<option value="Not Billed">Not Billed</option>
@@ -156,7 +156,7 @@ frappe.pages['service-dashboard'].on_page_load = function (wrapper) {
 					</div>
 					<div>
 						<label class="form-label">Invoiced</label>
-						<select class="form-control" id="sd-invoiced">
+						<select class="form-control" id="sd-invoiced-filter">
 							<option value="">All</option>
 							<option value="Invoiced">Invoiced</option>
 							<option value="Not Invoiced">Not Invoiced</option>
@@ -197,8 +197,8 @@ frappe.pages['service-dashboard'].on_page_load = function (wrapper) {
 				<div class="sd-chart"><h5>Top Items by Amount</h5><div class="sd-chart-body" id="sd-top-items-amount"></div></div>
 				<div class="sd-chart"><h5>Top Meal Types by Qty</h5><div class="sd-chart-body" id="sd-top-meal-qty"></div></div>
 				<div class="sd-chart"><h5>Top Meal Types by Amount</h5><div class="sd-chart-body" id="sd-top-meal-amount"></div></div>
-				<div class="sd-chart"><h5>Billed vs Not Billed</h5><div class="sd-chart-body" id="sd-billed"></div></div>
-				<div class="sd-chart"><h5>Invoiced vs Not Invoiced</h5><div class="sd-chart-body" id="sd-invoiced"></div></div>
+				<div class="sd-chart"><h5>Billed vs Not Billed</h5><div class="sd-chart-body" id="sd-billed-chart"></div></div>
+				<div class="sd-chart"><h5>Invoiced vs Not Invoiced</h5><div class="sd-chart-body" id="sd-invoiced-chart"></div></div>
 				<div class="sd-chart"><h5>PI Amount Trend</h5><div class="sd-chart-body" id="sd-pi-amount"></div></div>
 				<div class="sd-chart"><h5>PI Avg Amount Trend</h5><div class="sd-chart-body" id="sd-pi-avg"></div></div>
 				<div class="sd-chart"><h5>Service Billing by Day</h5><div class="sd-chart-body" id="sd-sb-day"></div></div>
@@ -231,6 +231,70 @@ frappe.pages['service-dashboard'].on_page_load = function (wrapper) {
 
 	const formatCurrency = (value) => frappe.format(value || 0, { fieldtype: 'Currency' });
 	const formatFloat = (value) => frappe.format(value || 0, { fieldtype: 'Float' });
+	const formatShortNumber = (value) => {
+		const num = Number(value);
+		if (!Number.isFinite(num)) return '0';
+		const abs = Math.abs(num);
+		if (abs >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
+		if (abs >= 1_000_000) return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+		if (abs >= 1_000) return `${(num / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+		return `${num}`;
+	};
+	const safeLabel = (value, fallback = 'Unknown') => {
+		if (value === null || value === undefined || value === '' || value !== value) return fallback;
+		return String(value);
+	};
+	const cleanCategorySeries = (rows, valueField, labelField, fallback = 'Unknown') => {
+		const cleaned = (rows || []).filter((r) => r && r[valueField] !== null && r[valueField] !== undefined);
+		return {
+			categories: cleaned.map((r) => safeLabel(r[labelField], fallback)),
+			data: cleaned.map((r) => Number(r[valueField]) || 0),
+		};
+	};
+	const sortCategorySeries = (series, limit = 12) => {
+		const zipped = series.categories.map((c, i) => ({ c, v: series.data[i] }));
+		zipped.sort((a, b) => (b.v || 0) - (a.v || 0));
+		const sliced = zipped.slice(0, limit);
+		return {
+			categories: sliced.map((z) => z.c),
+			data: sliced.map((z) => z.v),
+		};
+	};
+	const truncateLabel = (label, max = 18) => {
+		const str = String(label || '');
+		return str.length > max ? `${str.slice(0, max - 1)}…` : str;
+	};
+	const orderWeekdays = (rows, valueField) => {
+		const order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+		const map = new Map((rows || []).map((r) => [safeLabel(r.day, ''), Number(r[valueField]) || 0]));
+		return {
+			categories: order.filter((d) => map.has(d)),
+			data: order.filter((d) => map.has(d)).map((d) => map.get(d)),
+		};
+	};
+	const cleanTrendSeries = (rows, valueField) => {
+		const cleaned = (rows || []).filter((r) => r && r.date);
+		return {
+			categories: cleaned.map((r) => safeLabel(r.date, '')),
+			data: cleaned.map((r) => Number(r[valueField]) || 0),
+		};
+	};
+
+	const baseChartOptions = {
+		chart: {
+			toolbar: { show: false },
+			fontFamily: "Space Grotesk, Inter, sans-serif",
+			foreColor: "#1b1b1b",
+			animations: { enabled: true, easing: "easeinout", speed: 400 },
+		},
+		dataLabels: { enabled: false },
+		grid: { borderColor: "#e6e1d9", strokeDashArray: 3, padding: { left: 8, right: 8 } },
+		legend: { position: "bottom", fontSize: "12px", labels: { colors: "#1b1b1b" } },
+		tooltip: { theme: "light" },
+		xaxis: { labels: { trim: true, rotate: -20, style: { fontSize: "11px" } } },
+		yaxis: { labels: { formatter: formatShortNumber, style: { fontSize: "11px" } } },
+		noData: { text: "No data", align: "center", verticalAlign: "middle" },
+	};
 
 	const render_kpis = (data) => {
 		const invoicedCount = data.service_billing_stats.invoiced_count || 0;
@@ -265,11 +329,35 @@ frappe.pages['service-dashboard'].on_page_load = function (wrapper) {
 	};
 
 	const render_chart = (id, options) => {
+		const merged = {
+			...baseChartOptions,
+			...options,
+			chart: { ...baseChartOptions.chart, ...(options.chart || {}) },
+			dataLabels: { ...baseChartOptions.dataLabels, ...(options.dataLabels || {}) },
+			grid: { ...baseChartOptions.grid, ...(options.grid || {}) },
+			legend: { ...baseChartOptions.legend, ...(options.legend || {}) },
+			tooltip: { ...baseChartOptions.tooltip, ...(options.tooltip || {}) },
+			xaxis: { ...baseChartOptions.xaxis, ...(options.xaxis || {}) },
+			yaxis: { ...baseChartOptions.yaxis, ...(options.yaxis || {}) },
+		};
 		if (charts[id]) {
 			charts[id].destroy();
 		}
-		charts[id] = new ApexCharts(document.querySelector(id), options);
+		charts[id] = new ApexCharts(document.querySelector(id), merged);
 		charts[id].render();
+	};
+	const render_chart_or_empty = (id, options, hasData) => {
+		const $el = $(id);
+		if (!hasData) {
+			if (charts[id]) {
+				charts[id].destroy();
+				delete charts[id];
+			}
+			$el.html('<div class="text-muted">No data</div>');
+			return;
+		}
+		$el.empty();
+		render_chart(id, options);
 	};
 
 	const render_table = (id, columns, rows) => {
@@ -288,45 +376,55 @@ frappe.pages['service-dashboard'].on_page_load = function (wrapper) {
 	};
 
 	const buildStackedSeries = (rows, categoryField, seriesField, valueField) => {
-		const categories = Array.from(new Set(rows.map((r) => r[categoryField]).filter(Boolean)));
-		const seriesKeys = Array.from(new Set(rows.map((r) => r[seriesField]).filter(Boolean)));
-		const series = seriesKeys.map((key) => ({
-			name: key,
-			data: categories.map((cat) => {
-				const match = rows.find((r) => r[categoryField] === cat && r[seriesField] === key);
-				return match ? match[valueField] || 0 : 0;
-			}),
-		}));
+		const cleanRows = (rows || []).filter(
+			(r) => r && r[categoryField] && r[seriesField] && r[valueField] !== null && r[valueField] !== undefined
+		);
+		const categories = Array.from(new Set(cleanRows.map((r) => safeLabel(r[categoryField]))));
+		const seriesKeys = Array.from(new Set(cleanRows.map((r) => safeLabel(r[seriesField]))));
+		const series = seriesKeys
+			.map((key) => ({
+				name: key,
+				data: categories.map((cat) => {
+					const match = cleanRows.find(
+						(r) => safeLabel(r[categoryField]) === cat && safeLabel(r[seriesField]) === key
+					);
+					return match ? Number(match[valueField]) || 0 : 0;
+				}),
+			}))
+			.filter((s) => s.data.some((v) => v > 0));
 		return { categories, series };
 	};
 
 	const render_charts = (data) => {
+		const billingTrendSeries = cleanTrendSeries(data.service_billing_trend, 'amount');
 		const billingTrend = {
-			series: [{ name: 'Amount', data: data.service_billing_trend.map((row) => row.amount || 0) }],
-			chart: { type: 'area', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Amount', data: billingTrendSeries.data }],
+			chart: { type: 'area', height: 320 },
 			colors: ['#1f7a5c'],
 			dataLabels: { enabled: false },
 			stroke: { curve: 'smooth', width: 3 },
-			xaxis: { categories: data.service_billing_trend.map((row) => row.date) },
-			fill: { opacity: 0.2 },
+			xaxis: { categories: billingTrendSeries.categories },
+			fill: { opacity: 0.18 },
 		};
 
+		const mealTrendSeries = cleanTrendSeries(data.meal_form_trend, 'amount');
 		const mealTrend = {
-			series: [{ name: 'Amount', data: data.meal_form_trend.map((row) => row.amount || 0) }],
-			chart: { type: 'line', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Amount', data: mealTrendSeries.data }],
+			chart: { type: 'line', height: 320 },
 			colors: ['#b1522f'],
 			dataLabels: { enabled: false },
-			stroke: { curve: 'straight', width: 2 },
-			xaxis: { categories: data.meal_form_trend.map((row) => row.date) },
+			stroke: { curve: 'smooth', width: 2 },
+			xaxis: { categories: mealTrendSeries.categories },
 		};
 
+		const serviceTrendSeries = cleanTrendSeries(data.service_detail_trend, 'amount');
 		const serviceTrend = {
-			series: [{ name: 'Amount', data: data.service_detail_trend.map((row) => row.amount || 0) }],
-			chart: { type: 'area', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Amount', data: serviceTrendSeries.data }],
+			chart: { type: 'area', height: 320 },
 			colors: ['#2f5d9f'],
 			dataLabels: { enabled: false },
 			stroke: { curve: 'smooth', width: 2 },
-			xaxis: { categories: data.service_detail_trend.map((row) => row.date) },
+			xaxis: { categories: serviceTrendSeries.categories },
 			fill: { opacity: 0.2 },
 		};
 
@@ -335,48 +433,75 @@ frappe.pages['service-dashboard'].on_page_load = function (wrapper) {
 			labels: ['Billing Total', 'Service Detail Total'],
 			chart: { type: 'donut', height: 320 },
 			colors: ['#1f7a5c', '#b1522f'],
+			legend: { position: 'right' },
+			plotOptions: {
+				pie: {
+					donut: {
+						size: '70%',
+						labels: {
+							show: true,
+							total: {
+								show: true,
+								label: 'Total',
+								formatter: (w) => formatShortNumber(w.globals.seriesTotals.reduce((a, b) => a + b, 0)),
+							},
+						},
+					},
+				},
+			},
 		};
 
+		const topProvidersSeries = cleanCategorySeries(data.top_providers, 'amount', 'service_provider');
 		const topProviders = {
-			series: [{ name: 'Amount', data: data.top_providers.map((row) => row.amount || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Amount', data: topProvidersSeries.data }],
+			chart: { type: 'bar', height: 320 },
 			colors: ['#1f7a5c'],
-			plotOptions: { bar: { borderRadius: 6, horizontal: true } },
-			xaxis: { categories: data.top_providers.map((row) => row.service_provider || 'Unknown') },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: topProvidersSeries.categories },
 		};
 
+		const topContractorsSeries = cleanCategorySeries(data.top_contractors, 'amount', 'contractor');
 		const topContractors = {
-			series: [{ name: 'Amount', data: data.top_contractors.map((row) => row.amount || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Amount', data: topContractorsSeries.data }],
+			chart: { type: 'bar', height: 320 },
 			colors: ['#b1522f'],
-			plotOptions: { bar: { borderRadius: 6, horizontal: true } },
-			xaxis: { categories: data.top_contractors.map((row) => row.contractor || 'Unknown') },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: topContractorsSeries.categories },
 		};
 
+		const byTypeSeries = cleanCategorySeries(data.meal_form_by_type, 'amount', 'meal_type');
 		const byType = {
-			series: [{ name: 'Amount', data: data.meal_form_by_type.map((row) => row.amount || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Amount', data: byTypeSeries.data }],
+			chart: { type: 'bar', height: 320 },
 			colors: ['#2f5d9f'],
-			plotOptions: { bar: { borderRadius: 6, horizontal: true } },
-			xaxis: { categories: data.meal_form_by_type.map((row) => row.meal_type || 'Unknown') },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: byTypeSeries.categories },
 		};
 
+		const itemDetailSeries = cleanCategorySeries(data.service_detail_by_item, 'amount', 'item');
 		const itemDetail = {
-			series: [{ name: 'Amount', data: data.service_detail_by_item.map((row) => row.amount || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Amount', data: itemDetailSeries.data }],
+			chart: { type: 'bar', height: 320 },
 			colors: ['#4a7c59'],
-			plotOptions: { bar: { borderRadius: 6, horizontal: true } },
-			xaxis: { categories: data.service_detail_by_item.map((row) => row.item || 'Unknown') },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: itemDetailSeries.categories },
 		};
 
+		const scatterPoints = (data.meal_form_scatter || []).filter(
+			(row) => row && Number.isFinite(Number(row.x)) && Number.isFinite(Number(row.y))
+		);
 		const scatter = {
 			series: [
 				{
 					name: 'Meal Forms',
-					data: data.meal_form_scatter.map((row) => ({ x: row.x || 0, y: row.y || 0, name: row.name })),
+					data: scatterPoints.map((row) => ({
+						x: Number(row.x) || 0,
+						y: Number(row.y) || 0,
+						name: safeLabel(row.name, 'Unknown'),
+					})),
 				},
 			],
-			chart: { type: 'scatter', height: 320, toolbar: { show: false }, zoom: { enabled: false } },
+			chart: { type: 'scatter', height: 320, zoom: { enabled: false } },
 			xaxis: { title: { text: 'Qty' } },
 			yaxis: { title: { text: 'Amount' } },
 			tooltip: {
@@ -387,132 +512,218 @@ frappe.pages['service-dashboard'].on_page_load = function (wrapper) {
 			},
 		};
 
+		const mealQtySeries = cleanTrendSeries(data.meal_form_qty_trend, 'qty');
 		const mealQty = {
-			series: [{ name: 'Qty', data: data.meal_form_qty_trend.map((row) => row.qty || 0) }],
-			chart: { type: 'area', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Qty', data: mealQtySeries.data }],
+			chart: { type: 'area', height: 320 },
 			colors: ['#2f5d9f'],
-			xaxis: { categories: data.meal_form_qty_trend.map((row) => row.date) },
+			xaxis: { categories: mealQtySeries.categories },
 		};
 
+		const billingQtySeries = cleanTrendSeries(data.service_billing_qty_trend, 'qty');
 		const billingQty = {
-			series: [{ name: 'Qty', data: data.service_billing_qty_trend.map((row) => row.qty || 0) }],
-			chart: { type: 'area', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Qty', data: billingQtySeries.data }],
+			chart: { type: 'area', height: 320 },
 			colors: ['#1f7a5c'],
-			xaxis: { categories: data.service_billing_qty_trend.map((row) => row.date) },
+			xaxis: { categories: billingQtySeries.categories },
 		};
 
+		const avgRateSeries = cleanTrendSeries(data.service_billing_avg_rate_trend, 'avg_rate');
 		const avgRate = {
-			series: [{ name: 'Avg Rate', data: data.service_billing_avg_rate_trend.map((row) => row.avg_rate || 0) }],
-			chart: { type: 'line', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Avg Rate', data: avgRateSeries.data }],
+			chart: { type: 'line', height: 320 },
 			colors: ['#b1522f'],
-			xaxis: { categories: data.service_billing_avg_rate_trend.map((row) => row.date) },
+			xaxis: { categories: avgRateSeries.categories },
 		};
 
-		const providerStack = buildStackedSeries(data.provider_by_type, 'service_provider', 'service_type', 'amount');
+		const providerStack = buildStackedSeries(data.provider_by_type || [], 'service_provider', 'service_type', 'amount');
 		const providerByType = {
 			series: providerStack.series,
-			chart: { type: 'bar', stacked: true, height: 320, toolbar: { show: false } },
-			xaxis: { categories: providerStack.categories },
+			chart: { type: 'bar', stacked: true, height: 320 },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: providerStack.categories.map((c) => truncateLabel(c, 22)) },
+			legend: { position: 'bottom' },
 		};
 
-		const contractorStack = buildStackedSeries(data.contractor_by_type, 'contractor', 'service_type', 'amount');
+		const contractorStack = buildStackedSeries(data.contractor_by_type || [], 'contractor', 'service_type', 'amount');
 		const contractorByType = {
 			series: contractorStack.series,
-			chart: { type: 'bar', stacked: true, height: 320, toolbar: { show: false } },
-			xaxis: { categories: contractorStack.categories },
+			chart: { type: 'bar', stacked: true, height: 320 },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: contractorStack.categories.map((c) => truncateLabel(c, 22)) },
+			legend: { position: 'bottom' },
 		};
 
+		const mealProviderSeries = sortCategorySeries(
+			cleanCategorySeries(data.meal_provider_amount, 'amount', 'meal_provider'),
+			12
+		);
 		const mealProvider = {
-			series: [{ name: 'Amount', data: data.meal_provider_amount.map((row) => row.amount || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
-			plotOptions: { bar: { borderRadius: 6, horizontal: true } },
-			xaxis: { categories: data.meal_provider_amount.map((row) => row.meal_provider || 'Unknown') },
+			series: [{ name: 'Amount', data: mealProviderSeries.data }],
+			chart: { type: 'bar', height: 320 },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: mealProviderSeries.categories.map((c) => truncateLabel(c, 22)) },
+			colors: ['#2f5d9f'],
 		};
 
+		const departmentSeries = sortCategorySeries(
+			cleanCategorySeries(data.department_amount, 'amount', 'department'),
+			12
+		);
 		const department = {
-			series: [{ name: 'Amount', data: data.department_amount.map((row) => row.amount || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
-			plotOptions: { bar: { borderRadius: 6, horizontal: true } },
-			xaxis: { categories: data.department_amount.map((row) => row.department || 'Unknown') },
+			series: [{ name: 'Amount', data: departmentSeries.data }],
+			chart: { type: 'bar', height: 320 },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: departmentSeries.categories.map((c) => truncateLabel(c, 22)) },
+			colors: ['#1f7a5c'],
 		};
 
+		const costCenterSeries = sortCategorySeries(
+			cleanCategorySeries(data.cost_center_amount, 'amount', 'cost_center'),
+			12
+		);
 		const costCenter = {
-			series: [{ name: 'Amount', data: data.cost_center_amount.map((row) => row.amount || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
-			plotOptions: { bar: { borderRadius: 6, horizontal: true } },
-			xaxis: { categories: data.cost_center_amount.map((row) => row.cost_center || 'Unknown') },
+			series: [{ name: 'Amount', data: costCenterSeries.data }],
+			chart: { type: 'bar', height: 320 },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: costCenterSeries.categories.map((c) => truncateLabel(c, 22)) },
+			colors: ['#b1522f'],
 		};
 
+		const topItemsQtySeries = sortCategorySeries(
+			cleanCategorySeries(data.top_items_qty, 'qty', 'item'),
+			12
+		);
 		const topItemsQty = {
-			series: [{ name: 'Qty', data: data.top_items_qty.map((row) => row.qty || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
-			plotOptions: { bar: { borderRadius: 6, horizontal: true } },
-			xaxis: { categories: data.top_items_qty.map((row) => row.item || 'Unknown') },
+			series: [{ name: 'Qty', data: topItemsQtySeries.data }],
+			chart: { type: 'bar', height: 320 },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: topItemsQtySeries.categories.map((c) => truncateLabel(c, 22)) },
+			colors: ['#2f5d9f'],
 		};
 
+		const topItemsAmountSeries = sortCategorySeries(
+			cleanCategorySeries(data.top_items_amount, 'amount', 'item'),
+			12
+		);
 		const topItemsAmount = {
-			series: [{ name: 'Amount', data: data.top_items_amount.map((row) => row.amount || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
-			plotOptions: { bar: { borderRadius: 6, horizontal: true } },
-			xaxis: { categories: data.top_items_amount.map((row) => row.item || 'Unknown') },
+			series: [{ name: 'Amount', data: topItemsAmountSeries.data }],
+			chart: { type: 'bar', height: 320 },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: topItemsAmountSeries.categories.map((c) => truncateLabel(c, 22)) },
+			colors: ['#1f7a5c'],
 		};
 
+		const topMealQtySeries = sortCategorySeries(
+			cleanCategorySeries(data.top_meal_types_qty, 'qty', 'meal_type'),
+			12
+		);
 		const topMealQty = {
-			series: [{ name: 'Qty', data: data.top_meal_types_qty.map((row) => row.qty || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
-			plotOptions: { bar: { borderRadius: 6, horizontal: true } },
-			xaxis: { categories: data.top_meal_types_qty.map((row) => row.meal_type || 'Unknown') },
+			series: [{ name: 'Qty', data: topMealQtySeries.data }],
+			chart: { type: 'bar', height: 320 },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: topMealQtySeries.categories.map((c) => truncateLabel(c, 22)) },
+			colors: ['#b1522f'],
 		};
 
+		const topMealAmountSeries = sortCategorySeries(
+			cleanCategorySeries(data.top_meal_types_amount, 'amount', 'meal_type'),
+			12
+		);
 		const topMealAmount = {
-			series: [{ name: 'Amount', data: data.top_meal_types_amount.map((row) => row.amount || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
-			plotOptions: { bar: { borderRadius: 6, horizontal: true } },
-			xaxis: { categories: data.top_meal_types_amount.map((row) => row.meal_type || 'Unknown') },
+			series: [{ name: 'Amount', data: topMealAmountSeries.data }],
+			chart: { type: 'bar', height: 320 },
+			plotOptions: { bar: { borderRadius: 6, horizontal: true, barHeight: '70%' } },
+			xaxis: { categories: topMealAmountSeries.categories.map((c) => truncateLabel(c, 22)) },
+			colors: ['#2f5d9f'],
 		};
 
 		const billedSplit = {
-			series: [data.billed_split.billed || 0, data.billed_split.not_billed || 0],
+			series: [(data.billed_split || {}).billed || 0, (data.billed_split || {}).not_billed || 0],
 			labels: ['Billed', 'Not Billed'],
 			chart: { type: 'donut', height: 320 },
+			colors: ['#1f7a5c', '#e6e1d9'],
+			legend: { position: 'right' },
+			plotOptions: {
+				pie: {
+					donut: {
+						size: '70%',
+						labels: {
+							show: true,
+							total: {
+								show: true,
+								label: 'Total',
+								formatter: (w) => formatShortNumber(w.globals.seriesTotals.reduce((a, b) => a + b, 0)),
+							},
+						},
+					},
+				},
+			},
 		};
 
 		const invoicedSplit = {
-			series: [data.invoiced_split.invoiced || 0, data.invoiced_split.not_invoiced || 0],
+			series: [(data.invoiced_split || {}).invoiced || 0, (data.invoiced_split || {}).not_invoiced || 0],
 			labels: ['Invoiced', 'Not Invoiced'],
 			chart: { type: 'donut', height: 320 },
+			colors: ['#2f5d9f', '#e6e1d9'],
+			legend: { position: 'right' },
+			plotOptions: {
+				pie: {
+					donut: {
+						size: '70%',
+						labels: {
+							show: true,
+							total: {
+								show: true,
+								label: 'Total',
+								formatter: (w) => formatShortNumber(w.globals.seriesTotals.reduce((a, b) => a + b, 0)),
+							},
+						},
+					},
+				},
+			},
 		};
 
+		const piAmountSeries = cleanTrendSeries(data.pi_amount_trend, 'amount');
 		const piAmount = {
-			series: [{ name: 'Amount', data: data.pi_amount_trend.map((row) => row.amount || 0) }],
-			chart: { type: 'area', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Amount', data: piAmountSeries.data }],
+			chart: { type: 'area', height: 320 },
 			colors: ['#1f7a5c'],
-			xaxis: { categories: data.pi_amount_trend.map((row) => row.date) },
+			xaxis: { categories: piAmountSeries.categories },
+			fill: { opacity: 0.18 },
+			stroke: { curve: 'smooth', width: 2 },
 		};
 
+		const piAvgSeries = cleanTrendSeries(data.pi_avg_trend, 'avg_amount');
 		const piAvg = {
-			series: [{ name: 'Avg Amount', data: data.pi_avg_trend.map((row) => row.avg_amount || 0) }],
-			chart: { type: 'line', height: 320, toolbar: { show: false } },
+			series: [{ name: 'Avg Amount', data: piAvgSeries.data }],
+			chart: { type: 'line', height: 320 },
 			colors: ['#b1522f'],
-			xaxis: { categories: data.pi_avg_trend.map((row) => row.date) },
+			xaxis: { categories: piAvgSeries.categories },
+			stroke: { curve: 'smooth', width: 2 },
 		};
 
+		const sbDaySeries = orderWeekdays(data.sb_by_day, 'count');
 		const sbDay = {
-			series: [{ name: 'Count', data: data.sb_by_day.map((row) => row.count || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
-			xaxis: { categories: data.sb_by_day.map((row) => row.day || 'Unknown') },
+			series: [{ name: 'Count', data: sbDaySeries.data }],
+			chart: { type: 'bar', height: 320 },
+			xaxis: { categories: sbDaySeries.categories },
+			colors: ['#1f7a5c'],
 		};
 
+		const mfDaySeries = orderWeekdays(data.mf_by_day, 'count');
 		const mfDay = {
-			series: [{ name: 'Count', data: data.mf_by_day.map((row) => row.count || 0) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
-			xaxis: { categories: data.mf_by_day.map((row) => row.day || 'Unknown') },
+			series: [{ name: 'Count', data: mfDaySeries.data }],
+			chart: { type: 'bar', height: 320 },
+			xaxis: { categories: mfDaySeries.categories },
+			colors: ['#2f5d9f'],
 		};
 
 		const lead = {
 			series: [{ name: 'Count', data: Object.values(data.lead_time_buckets || {}) }],
-			chart: { type: 'bar', height: 320, toolbar: { show: false } },
+			chart: { type: 'bar', height: 320 },
 			xaxis: { categories: Object.keys(data.lead_time_buckets || {}) },
+			colors: ['#b1522f'],
 		};
 
 		render_chart('#sd-billing-trend', billingTrend);
@@ -527,8 +738,16 @@ frappe.pages['service-dashboard'].on_page_load = function (wrapper) {
 		render_chart('#sd-meal-qty', mealQty);
 		render_chart('#sd-billing-qty', billingQty);
 		render_chart('#sd-avg-rate', avgRate);
-		render_chart('#sd-provider-type', providerByType);
-		render_chart('#sd-contractor-type', contractorByType);
+		render_chart_or_empty(
+			'#sd-provider-type',
+			providerByType,
+			providerStack.categories.length && providerStack.series.length
+		);
+		render_chart_or_empty(
+			'#sd-contractor-type',
+			contractorByType,
+			contractorStack.categories.length && contractorStack.series.length
+		);
 		render_chart('#sd-meal-provider', mealProvider);
 		render_chart('#sd-department', department);
 		render_chart('#sd-cost-center', costCenter);
@@ -536,8 +755,8 @@ frappe.pages['service-dashboard'].on_page_load = function (wrapper) {
 		render_chart('#sd-top-items-amount', topItemsAmount);
 		render_chart('#sd-top-meal-qty', topMealQty);
 		render_chart('#sd-top-meal-amount', topMealAmount);
-		render_chart('#sd-billed', billedSplit);
-		render_chart('#sd-invoiced', invoicedSplit);
+		render_chart('#sd-billed-chart', billedSplit);
+		render_chart('#sd-invoiced-chart', invoicedSplit);
 		render_chart('#sd-pi-amount', piAmount);
 		render_chart('#sd-pi-avg', piAvg);
 		render_chart('#sd-sb-day', sbDay);
@@ -604,8 +823,8 @@ frappe.pages['service-dashboard'].on_page_load = function (wrapper) {
 			service_provider: $('#sd-service-provider').val(),
 			contractor: $('#sd-contractor').val(),
 			service_type: $('#sd-service-type').val(),
-			billed: $('#sd-billed').val(),
-			invoiced: $('#sd-invoiced').val(),
+			billed: $('#sd-billed-filter').val(),
+			invoiced: $('#sd-invoiced-filter').val(),
 			granularity: $('#sd-granularity').val(),
 		};
 		frappe.call({
