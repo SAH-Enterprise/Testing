@@ -39,6 +39,9 @@
   "column_break_uioa",
   "service_amount",
   "billing_section",
+  "billed",
+  "service_billing",
+  "purchase_invoice",
   "invoiced",
   "column_break_myhc",
   "invoiced_amount",
@@ -248,6 +251,27 @@
    "fieldname": "billing_section",
    "fieldtype": "Section Break",
    "label": "Billing"
+  },
+  {
+   "default": "0",
+   "fieldname": "billed",
+   "fieldtype": "Check",
+   "label": "Billed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "service_billing",
+   "fieldtype": "Link",
+   "label": "Service Billing",
+   "options": "Service Billing",
+   "read_only": 1
+  },
+  {
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice",
+   "read_only": 1
   },
   {
    "default": "0",

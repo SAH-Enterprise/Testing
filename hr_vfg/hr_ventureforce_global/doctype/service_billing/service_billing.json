@@ -1,0 +1,298 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:SB-{YY}-{MM}-{DD}-{###}",
+ "creation": "2026-03-15 15:35:26.871400",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "posting_date",
+  "column_break_posting_date",
+  "posting_time",
+  "column_break_posting_time",
+  "from_date",
+  "column_break_from_date",
+  "to_date",
+  "column_break_to_date",
+  "period",
+  "column_break_period",
+  "frequency",
+  "column_break_frequency",
+  "service_type",
+  "column_break_service_type",
+  "service_provider",
+  "column_break_service_provider",
+  "contractor",
+  "section_break_meal_forms",
+  "meal_forms",
+  "section_break_service_details",
+  "service_details",
+  "section_break_summary",
+  "summary_mode",
+  "column_break_summary_mode",
+  "summary",
+  "section_break_totals",
+  "total_qty",
+  "column_break_total_qty",
+  "total_amount",
+  "column_break_total_amount",
+  "total_service_amount",
+  "section_break_billing",
+  "supplier",
+  "purchase_invoice",
+  "column_break_purchase_invoice",
+  "supplier_invoice_no",
+  "column_break_supplier_invoice_no",
+  "supplier_invoice_date",
+  "section_break_ixyq",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "default": "Now",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_posting_date",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Now",
+   "fieldname": "posting_time",
+   "fieldtype": "Time",
+   "label": "Posting Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_posting_time",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "From Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_from_date",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "To Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_to_date",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "period",
+   "fieldtype": "Data",
+   "label": "Period"
+  },
+  {
+   "fieldname": "column_break_period",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "frequency",
+   "fieldtype": "Select",
+   "label": "Frequency",
+   "options": "Daily\nWeekly\nMonthly\nCustom"
+  },
+  {
+   "fieldname": "column_break_frequency",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "service_type",
+   "fieldtype": "Link",
+   "label": "Service Type",
+   "options": "Meal Type"
+  },
+  {
+   "fieldname": "column_break_service_type",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "service_provider",
+   "fieldtype": "Link",
+   "label": "Service Provider",
+   "link_filters": "[[\"Meal Provider\",\"active\",\"=\",1]]",
+   "options": "Meal Provider"
+  },
+  {
+   "fieldname": "column_break_service_provider",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contractor",
+   "fieldtype": "Link",
+   "label": "Contractor",
+   "options": "Contractor"
+  },
+  {
+   "fieldname": "section_break_meal_forms",
+   "fieldtype": "Section Break",
+   "label": "Meal Forms"
+  },
+  {
+   "fieldname": "meal_forms",
+   "fieldtype": "Table",
+   "label": "Meal Forms",
+   "options": "Service Billing Meal Form"
+  },
+  {
+   "fieldname": "section_break_service_details",
+   "fieldtype": "Section Break",
+   "label": "Service Detail"
+  },
+  {
+   "fieldname": "service_details",
+   "fieldtype": "Table",
+   "label": "Service Detail",
+   "options": "Service Billing Detail"
+  },
+  {
+   "fieldname": "section_break_summary",
+   "fieldtype": "Section Break",
+   "label": "Summary"
+  },
+  {
+   "default": "Aggregate by Service Type",
+   "fieldname": "summary_mode",
+   "fieldtype": "Select",
+   "label": "Summary Mode",
+   "options": "Manual\nAggregate by Service Type"
+  },
+  {
+   "fieldname": "column_break_summary_mode",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "summary",
+   "fieldtype": "Table",
+   "label": "Summary",
+   "options": "Service Billing Summary"
+  },
+  {
+   "fieldname": "section_break_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_qty",
+   "fieldtype": "Float",
+   "label": "Total Qty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_total_qty",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Float",
+   "label": "Total Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_total_amount",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_service_amount",
+   "fieldtype": "Float",
+   "label": "Service Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_billing",
+   "fieldtype": "Section Break",
+   "label": "Billing"
+  },
+  {
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_purchase_invoice",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Supplier",
+   "options": "Supplier",
+   "read_only": 1
+  },
+  {
+   "fieldname": "supplier_invoice_no",
+   "fieldtype": "Data",
+   "label": "Supplier Invoice No"
+  },
+  {
+   "fieldname": "column_break_supplier_invoice_no",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "supplier_invoice_date",
+   "fieldtype": "Date",
+   "label": "Supplier Invoice Date"
+  },
+  {
+   "fieldname": "section_break_ixyq",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Service Billing",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-03-15 17:00:05.856281",
+ "modified_by": "Administrator",
+ "module": "HR VentureForce Global",
+ "name": "Service Billing",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

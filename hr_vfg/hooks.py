@@ -183,9 +183,11 @@ override_whitelisted_methods = {
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
-# override_doctype_dashboards = {
-#	"Task": "hr_vfg.task.get_dashboard_data"
-# }
+override_doctype_dashboards = {
+	"Meal Form": "hr_vfg.hr_ventureforce_global.dashboard.get_meal_form_dashboard_data",
+	"Service Billing": "hr_vfg.hr_ventureforce_global.dashboard.get_service_billing_dashboard_data",
+	"Purchase Invoice": "hr_vfg.hr_ventureforce_global.dashboard.get_purchase_invoice_dashboard_data",
+}
 
 # exempt linked doctypes from being automatically cancelled
 #
@@ -222,4 +224,3 @@ user_data_fields = [
 # auth_hooks = [
 #	"hr_vfg.auth.validate"
 # ]
-
