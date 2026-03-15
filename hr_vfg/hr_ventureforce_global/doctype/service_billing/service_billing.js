@@ -52,6 +52,8 @@ frappe.ui.form.on("Service Billing", {
 						serviceDetails.forEach((row) => {
 							const child = frm.add_child("service_details");
 							child.meal_form = row.meal_form;
+							child.meal_type = row.meal_type;
+							child.date = row.date;
 							child.item = row.item;
 							child.remarks = row.remarks;
 							child.qty = row.qty;
@@ -59,28 +61,36 @@ frappe.ui.form.on("Service Billing", {
 						});
 
 						if (frm.doc.summary_mode === "Aggregate by Service Type") {
-							const group = {};
+							const byItem = {};
+
 							mealForms.forEach((row) => {
-								const key = row.meal_type || "Unknown";
-								if (!group[key]) {
-									group[key] = { qty: 0, amount: 0 };
+								const item = mealTypeItemMap[row.meal_type];
+								if (!item) return;
+								if (!byItem[item]) {
+									byItem[item] = { qty: 0, amount: 0 };
 								}
-								group[key].qty += row.total_qty || 0;
-								group[key].amount += row.total_amount || 0;
+								byItem[item].qty += row.total_qty || 0;
+								byItem[item].amount += row.total_amount || 0;
 							});
 
-							Object.keys(group).forEach((mealType) => {
-								const item = mealTypeItemMap[mealType];
-								if (!item) {
-									return;
+							serviceDetails.forEach((row) => {
+								const item = row.item;
+								if (!item) return;
+								if (!byItem[item]) {
+									byItem[item] = { qty: 0, amount: 0 };
 								}
+								byItem[item].qty += row.qty || 0;
+								byItem[item].amount += row.amount || 0;
+							});
+
+							Object.keys(byItem).forEach((item) => {
 								const srow = frm.add_child("summary");
 								srow.item = item;
-								srow.qty = group[mealType].qty;
-								srow.amount = group[mealType].amount;
-								srow.rate = group[mealType].qty
-									? group[mealType].amount / group[mealType].qty
-									: group[mealType].amount;
+								srow.qty = byItem[item].qty;
+								srow.amount = byItem[item].amount;
+								srow.rate = byItem[item].qty
+									? byItem[item].amount / byItem[item].qty
+									: byItem[item].amount;
 							});
 							frm.refresh_field("summary");
 						}
@@ -116,23 +126,54 @@ frappe.ui.form.on("Service Billing", {
 	summary_mode(frm) {
 		if (frm.doc.summary_mode === "Aggregate by Service Type") {
 			frm.clear_table("summary");
-			if (frm.doc.meal_forms?.length) {
-				const group = {};
-				(frm.doc.meal_forms || []).forEach((row) => {
-					const key = row.meal_type || "Unknown";
-					if (!group[key]) {
-						group[key] = { qty: 0, amount: 0 };
+
+			const byItem = {};
+			const mealForms = frm.doc.meal_forms || [];
+			const serviceDetails = frm.doc.service_details || [];
+
+			const mealTypes = Array.from(
+				new Set(mealForms.map((row) => row.meal_type).filter(Boolean))
+			);
+
+			if (!mealTypes.length && !serviceDetails.length) {
+				frm.refresh_field("summary");
+				return;
+			}
+
+			const buildSummary = (mealTypeItemMap = {}) => {
+				mealForms.forEach((row) => {
+					const item = mealTypeItemMap[row.meal_type];
+					if (!item) return;
+					if (!byItem[item]) {
+						byItem[item] = { qty: 0, amount: 0 };
 					}
-					group[key].qty += row.total_qty || 0;
-					group[key].amount += row.total_amount || 0;
+					byItem[item].qty += row.total_qty || 0;
+					byItem[item].amount += row.total_amount || 0;
 				});
 
-				const mealTypes = Object.keys(group).filter((k) => k !== "Unknown");
-				if (!mealTypes.length) {
-					frm.refresh_field("summary");
-					return;
-				}
+				serviceDetails.forEach((row) => {
+					const item = row.item;
+					if (!item) return;
+					if (!byItem[item]) {
+						byItem[item] = { qty: 0, amount: 0 };
+					}
+					byItem[item].qty += row.qty || 0;
+					byItem[item].amount += row.amount || 0;
+				});
 
+				Object.keys(byItem).forEach((item) => {
+					const srow = frm.add_child("summary");
+					srow.item = item;
+					srow.qty = byItem[item].qty;
+					srow.amount = byItem[item].amount;
+					srow.rate = byItem[item].qty
+						? byItem[item].amount / byItem[item].qty
+						: byItem[item].amount;
+				});
+				frm.refresh_field("summary");
+			};
+
+			if (mealTypes.length) {
 				frappe.db
 					.get_list("Meal Type", {
 						fields: ["name", "item"],
@@ -144,21 +185,10 @@ frappe.ui.form.on("Service Billing", {
 						(rows || []).forEach((row) => {
 							map[row.name] = row.item;
 						});
-						mealTypes.forEach((mealType) => {
-							const item = map[mealType];
-							if (!item) return;
-							const srow = frm.add_child("summary");
-							srow.item = item;
-							srow.qty = group[mealType].qty;
-							srow.amount = group[mealType].amount;
-							srow.rate = group[mealType].qty
-								? group[mealType].amount / group[mealType].qty
-								: group[mealType].amount;
-						});
-						frm.refresh_field("summary");
+						buildSummary(map);
 					});
 			} else {
-				frm.refresh_field("summary");
+				buildSummary({});
 			}
 		}
 	},

@@ -7,6 +7,8 @@
  "engine": "InnoDB",
  "field_order": [
   "meal_form",
+  "meal_type",
+  "date",
   "item",
   "column_break_1",
   "remarks",
@@ -23,6 +25,21 @@
    "label": "Meal Form",
    "options": "Meal Form",
    "reqd": 1
+  },
+  {
+   "fieldname": "meal_type",
+   "fieldtype": "Link",
+   "label": "Service Type",
+   "options": "Meal Type",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "label": "Date",
+   "in_list_view": 1,
+   "read_only": 1
   },
   {
    "fieldname": "item",

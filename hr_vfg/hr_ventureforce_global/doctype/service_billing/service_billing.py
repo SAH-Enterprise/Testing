@@ -82,6 +82,7 @@ class ServiceBilling(Document):
 			pi.company = company
 			pi.posting_date = self.posting_date
 			pi.posting_time = self.posting_time
+			pi.naming_series = "PINV-LOCAL-.###.-.YY."
 			pi.bill_no = supplier_invoice_no
 			pi.bill_date = supplier_invoice_date
 
@@ -115,6 +116,7 @@ class ServiceBilling(Document):
 			pi.company = company
 			pi.posting_date = self.posting_date
 			pi.posting_time = self.posting_time
+			pi.naming_series = "PINV-LOCAL-.###.-.YY."
 			pi.bill_no = supplier_invoice_no
 			pi.bill_date = supplier_invoice_date
 
@@ -145,6 +147,7 @@ class ServiceBilling(Document):
 		pi.company = company
 		pi.posting_date = self.posting_date
 		pi.posting_time = self.posting_time
+		pi.naming_series = "PINV-LOCAL-.###.-.YY."
 		pi.bill_no = supplier_invoice_no
 		pi.bill_date = supplier_invoice_date
 
@@ -315,6 +318,14 @@ def get_meal_forms(from_date, to_date, meal_type=None, meal_provider=None, contr
 		],
 		order_by="parent asc",
 	)
+	meal_form_meta = {
+		row.get("name"): {"meal_type": row.get("meal_type"), "date": row.get("date")}
+		for row in meal_forms
+	}
+	for row in service_details:
+		meta = meal_form_meta.get(row.get("meal_form")) or {}
+		row["meal_type"] = meta.get("meal_type")
+		row["date"] = meta.get("date")
 
 	meal_type_map = {}
 	if meal_forms:
@@ -327,8 +338,32 @@ def get_meal_forms(from_date, to_date, meal_type=None, meal_provider=None, contr
 			):
 				meal_type_map[row.name] = row.item
 
+	allowed_meal_types = {"Lunch", "Dinner", "Breakfast", "Sehri", "Iftari"}
+	filtered_meal_forms = []
+	extra_service_details = []
+	non_allowed_meal_forms = set()
+	for row in meal_forms:
+		if row.get("meal_type") in allowed_meal_types:
+			filtered_meal_forms.append(row)
+		else:
+			non_allowed_meal_forms.add(row.get("name"))
+			item = meal_type_map.get(row.get("meal_type"))
+			if item:
+				extra_service_details.append(
+					{
+						"meal_form": row.get("name"),
+						"meal_type": row.get("meal_type"),
+						"date": row.get("date"),
+						"item": item,
+						"remarks": f"From Meal Form ({row.get('meal_type')})",
+						"qty": row.get("total_qty"),
+						"amount": row.get("total_amount"),
+					}
+				)
+
 	return {
-		"meal_forms": meal_forms,
-		"service_details": service_details,
+		"meal_forms": filtered_meal_forms,
+		"service_details": [d for d in service_details if d.get("meal_form") not in non_allowed_meal_forms]
+		+ extra_service_details,
 		"meal_type_item_map": meal_type_map,
 	}
