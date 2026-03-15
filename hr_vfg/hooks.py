@@ -30,6 +30,15 @@ app_license = "MIT"
 # include js in page
 # page_js = {"page" : "public/js/file.js"}
 
+# Fixtures
+# --------
+fixtures = [
+	{
+		"doctype": "Custom HTML Block",
+		"filters": [["name", "in", ["Service Workspace Hub"]]],
+	}
+]
+
 # include js in doctype views
 doctype_js = {
     "Payroll Entry" : "public/js/payroll_entry.js",

@@ -1,0 +1,58 @@
+{
+ "charts": [],
+ "content": "[{\"id\":\"1KO_xEiGKK\",\"type\":\"custom_block\",\"data\":{\"custom_block_name\":\"Service Workspace Hub\",\"col\":12}}]",
+ "creation": "2024-12-11 19:54:42.487508",
+ "custom_blocks": [
+  {
+   "custom_block_name": "Service Workspace Hub",
+   "label": "Service Workspace Hub"
+  }
+ ],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "table_2",
+ "idx": 2,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Meal",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Transaction",
+   "link_count": 1,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Service Form",
+   "link_count": 0,
+   "link_to": "Meal Form",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-03-16 00:28:15.375729",
+ "modified_by": "Administrator",
+ "module": "HR VentureForce Global",
+ "name": "Meal",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [
+  {
+   "role": "Meal User"
+  }
+ ],
+ "sequence_id": 44.0,
+ "shortcuts": [],
+ "title": "Meal"
+}
