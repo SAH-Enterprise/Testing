@@ -1541,7 +1541,7 @@ class EmployeeAttendance(Document):
                                         check_out_1_time = (datetime.min + check_out_1_time).time()
                                         check_out_1_str = check_out_1_time.strftime("%H:%M:%S")
                                     
-                                    if data.over_time_type == "Weekly Off":
+                                    if data.day_type == "Weekly Off":
                                         shift_out_str = data.shift_out  # Example: "18:00:00"
                                         check_out_1_str = data.check_out_1  # Example: "19:30:00"
                                         shift_in_str = data.shift_in
@@ -1602,16 +1602,22 @@ class EmployeeAttendance(Document):
                                             
                                             difference1 = timedelta()
                                              
-                                            if check_out_1_time < shift_out_time and data.over_time_type != "Weekly Off":
+                                            # Use day_type, not over_time_type: over_time_type is assigned later in the
+                                            # slab loop and is often stale (e.g. still "Weekly Off"), which skips this
+                                            # logic and leaves difference1 at 00:00:00.
+                                            if check_out_1_time < shift_out_time and data.day_type != "Weekly Off":
                                                 check_out_1_time += timedelta(days=1)
                                                 difference1 = check_out_1_time - shift_out_time
                                             
-                                            if check_out_1_time > shift_out_time and data.over_time_type != "Weekly Off":
+                                            if check_out_1_time > shift_out_time and data.day_type != "Weekly Off":
                                                 difference1 = check_out_1_time - shift_out_time
                                             
-                                            if check_out_1_time < shift_out_time and data.over_time_type == "Weekly Off":
-                                                # difference1 = check_out_1_time - check_in_1_str
-                                                difference1 = check_out_1_time - check_in_1_str
+                                            if check_out_1_time < shift_out_time and data.day_type == "Weekly Off":
+                                                co_dt = datetime.strptime(check_out_1_str, "%H:%M:%S")
+                                                ci_dt = datetime.strptime(check_in_1_str, "%H:%M:%S")
+                                                if co_dt < ci_dt:
+                                                    co_dt += timedelta(days=1)
+                                                difference1 = co_dt - ci_dt
                                             # if data.over_time_type == "Weekly Off":
                                             #     pass
                                                 # difference1 = timedelta(hours=10, minutes=10, seconds=10)
@@ -1734,20 +1740,43 @@ class EmployeeAttendance(Document):
                         if isinstance(check_in_1_str, timedelta):
                             check_in_1_str = str(check_in_1_str)
 
-                        # Check if the strings are valid
-                        if isinstance(shift_out_str, str) and isinstance(check_out_1_str, str) and isinstance(data.difference1, str):
+                        # Calculate OT time delta directly from checkout/shift times so it does not
+                        # depend on data.difference1 being pre-populated.
+                        if isinstance(shift_out_str, str) and isinstance(check_out_1_str, str):
                             try:
                                 shift_out_time = datetime.strptime(shift_out_str, "%H:%M:%S").time()
                                 check_out_1_time = datetime.strptime(check_out_1_str, "%H:%M:%S").time()
-                                time_difference = datetime.strptime(data.difference1, "%H:%M:%S").time()
-                                time_difference_delta = timedelta(hours=time_difference.hour, minutes=time_difference.minute, seconds=time_difference.second)
-                                
-                            except ValueError as e:
-                                # print(f"Error parsing time: {e}")
-                                pass
-                        else:
-                            pass
-                            # print("Error: shift_out_str or check_out_1_str is not a valid string.")
+
+                                if data.day_type == "Weekly Off" and isinstance(check_in_1_str, str):
+                                    ci_dt = datetime.strptime(check_in_1_str, "%H:%M:%S")
+                                    co_dt = datetime.strptime(check_out_1_str, "%H:%M:%S")
+                                    if co_dt < ci_dt:
+                                        co_dt += timedelta(days=1)
+                                    time_difference_delta = co_dt - ci_dt
+                                else:
+                                    so_dt = datetime.combine(datetime.today(), shift_out_time)
+                                    co_dt = datetime.combine(datetime.today(), check_out_1_time)
+                                    if co_dt < so_dt:
+                                        co_dt += timedelta(days=1)
+                                    time_difference_delta = co_dt - so_dt
+
+                                total_seconds = int(time_difference_delta.total_seconds())
+                                hours = total_seconds // 3600
+                                minutes = (total_seconds % 3600) // 60
+                                seconds = total_seconds % 60
+                                data.difference1 = f"{hours:02}:{minutes:02}:{seconds:02}"
+                            except ValueError:
+                                # Fall back to stored difference1 if parsing fails.
+                                if isinstance(data.difference1, str):
+                                    try:
+                                        time_difference = datetime.strptime(data.difference1, "%H:%M:%S").time()
+                                        time_difference_delta = timedelta(
+                                            hours=time_difference.hour,
+                                            minutes=time_difference.minute,
+                                            seconds=time_difference.second,
+                                        )
+                                    except ValueError:
+                                        pass
                         
 
 
@@ -1860,9 +1889,22 @@ class EmployeeAttendance(Document):
                                             
 
                                             if record.from_time > record.to_time:
-                                                # Shift crosses midnight
-                                                # check_out_1_time = check_out_1_time.time()
-                                                if check_out_1_time >= record.from_time or check_out_1_time <= record.to_time:
+                                                # Slab crosses midnight. Include:
+                                                # 1) late-evening time (>= from_time)
+                                                # 2) after-midnight time (<= to_time)
+                                                # 3) after-midnight spillover (> to_time) until shift starts
+                                                #    so values like 06:52/07:00 are still counted.
+                                                in_overnight_slab = (
+                                                    check_out_1_time >= record.from_time
+                                                    or check_out_1_time <= record.to_time
+                                                )
+                                                if (not in_overnight_slab) and shift_in_time:
+                                                    in_overnight_slab = (
+                                                        check_out_1_time > record.to_time
+                                                        and check_out_1_time < shift_in_time
+                                                    )
+
+                                                if in_overnight_slab:
                                                     if isinstance(threshould, timedelta):
                                                         threshold_timedelta = threshould
                                                     else:
@@ -1948,7 +1990,8 @@ class EmployeeAttendance(Document):
                                                     check_out_1_time = check_out_1_time.time()
                                                 # check_out_1_time = check_out_1_time.time()
                                                 # Handle the case where the shift does not cross midnight
-                                                if check_out_1_time >= record.from_time and check_out_1_time <= record.to_time:
+                                                in_regular_slab = check_out_1_time >= record.from_time and check_out_1_time <= record.to_time
+                                                if in_regular_slab:
                                                     if threshould is None:
                                                         threshold_timedelta = timedelta(hours=0)  # Default to zero hours if None
                                                     elif isinstance(threshould, timedelta):
