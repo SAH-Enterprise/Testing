@@ -15,4 +15,5 @@ frappe.ui.form.on('Employee Attendance', {
             });
         });
     }
+    
 });
