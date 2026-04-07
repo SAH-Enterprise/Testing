@@ -42,6 +42,7 @@
   "half_day_for_check_in",
   "half_day_threshould",
   "cb18",
+  "use_manual_absent",
   "manual_absent",
   "lates_for_absent",
   "no_of_sundays",
@@ -477,6 +478,13 @@
    "fieldtype": "Data",
    "hidden": 1,
    "label": "Approved Overtime - LE"
+  },
+  {
+   "default": "0",
+   "description": "When enabled, Manual Absent is not overwritten on save (Security Guard / Gate Keeper: auto pre-join and post-relieving day counts).",
+   "fieldname": "use_manual_absent",
+   "fieldtype": "Check",
+   "label": "Use manual absent entry"
   },
   {
    "fieldname": "manual_absent",
