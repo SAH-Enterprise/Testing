@@ -5,9 +5,14 @@
    "label": "Outgoing Salary"
   }
  ],
- "content": "[{\"type\":\"onboarding\",\"data\":{\"onboarding_name\":\"Payroll\",\"col\":12}},{\"type\":\"chart\",\"data\":{\"chart_name\":\"Outgoing Salary\",\"col\":12}},{\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\",\"col\":12}},{\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Dashboard\",\"col\":3}},{\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Salary Register\",\"col\":3}},{\"type\":\"spacer\",\"data\":{\"col\":12}},{\"type\":\"card\",\"data\":{\"card_name\":\"Quick Links\",\"col\":4}},{\"type\":\"card\",\"data\":{\"card_name\":\"Settings\",\"col\":4}}]",
+ "content": "[{\"type\": \"onboarding\", \"data\": {\"onboarding_name\": \"Payroll\", \"col\": 12}}, {\"type\": \"chart\", \"data\": {\"chart_name\": \"Outgoing Salary\", \"col\": 12}}, {\"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"SC-BLOCK-PAYROLL\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Outgoing Salary Charts\", \"col\": 12}}, {\"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Dashboard\", \"col\": 3}}, {\"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Salary Register\", \"col\": 3}}, {\"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"type\": \"card\", \"data\": {\"card_name\": \"Quick Links\", \"col\": 4}}, {\"type\": \"card\", \"data\": {\"card_name\": \"Settings\", \"col\": 4}}]",
  "creation": "2020-05-27 19:54:23.405607",
- "custom_blocks": [],
+ "custom_blocks": [
+  {
+   "custom_block_name": "Outgoing Salary Charts",
+   "label": "Outgoing Salary Charts"
+  }
+ ],
  "docstatus": 0,
  "doctype": "Workspace",
  "for_user": "",
@@ -64,7 +69,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-04-09 14:47:05.104204",
+ "modified": "2026-04-09 15:39:29.943536",
  "modified_by": "Administrator",
  "module": "HR VentureForce Global",
  "name": "Payroll",
