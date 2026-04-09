@@ -22,17 +22,20 @@ class AttendanceLogs(TransactionBase):
 		mon = ["January", "February", "March", "April", "May", "June", "July", 
 		"August", "September", "October", "November", "December"]
 		att_det = str(self.attendance).split()
-		d = str(att_det[3]).split("-")[1]
-		month_ = mon[int(d)-1]
+		# Always derive period from attendance_date, not raw machine string.
+		# For overnight checkouts we intentionally shift attendance_date to previous day,
+		# so month/year lookup must follow attendance_date to avoid creating next-month doc.
+		att_date = frappe.utils.getdate(self.attendance_date)
+		month_ = mon[int(att_date.month)-1]
 
-		start_date = frappe.utils.get_first_day(self.attendance_date)
-		end_date = frappe.utils.get_last_day(self.attendance_date)
+		start_date = frappe.utils.get_first_day(att_date)
+		end_date = frappe.utils.get_last_day(att_date)
 		
 		
 		hr_settings = frappe.get_single('V HR Settings')
 		if hr_settings.period_from != 1:
-			if frappe.utils.getdate(self.attendance_date).day < hr_settings.period_from:
-				tempDate  = frappe.utils.getdate(self.attendance_date)
+			if att_date.day < hr_settings.period_from:
+				tempDate  = att_date
 				if (tempDate.month-1) ==0:
 					start_date = frappe.utils.getdate(str(tempDate.year-1)+"-"+str((tempDate.month-1)+12)+"-"+str(hr_settings.period_from))
 				else:
@@ -41,7 +44,7 @@ class AttendanceLogs(TransactionBase):
 				month_ = mon[tempDate.month-1]
 		
 			else:
-				tempDate  = frappe.utils.getdate(self.attendance_date)
+				tempDate  = att_date
 				start_date = frappe.utils.getdate(str(tempDate.year)+"-"+str(tempDate.month)+"-"+str(hr_settings.period_from))
 				if tempDate.month == 12:
 					end_date = frappe.utils.getdate(str(tempDate.year+1)+"-"+str(1)+"-"+str(hr_settings.period_to))

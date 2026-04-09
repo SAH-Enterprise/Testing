@@ -342,7 +342,10 @@ def get_checkouts(args=None,ip=None, port=None,password=0):
 				
 				
 	except Exception as e:
-		frappe.log_error ("Process terminate : {}"+frappe.get_traceback())
+		frappe.log_error(
+			message=f"Process terminate: {str(e)}\n\n{frappe.get_traceback()}",
+			title="Attendance Checkout Sync Error",
+		)
 	finally:
 		if conn:
 			conn.disconnect()
@@ -536,7 +539,10 @@ def get_checkins_checkouts(args=None,ip=None, port=None,password=0):
 				
 				
 	except Exception as e:
-		print ("Process terminate : {}"+frappe.get_traceback())
+		frappe.log_error(
+			message=f"Process terminate: {str(e)}\n\n{frappe.get_traceback()}",
+			title="Attendance In/Out Sync Error",
+		)
 	finally:
 		if conn:
 			conn.disconnect()
