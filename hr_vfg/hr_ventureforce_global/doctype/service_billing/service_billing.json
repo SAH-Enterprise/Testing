@@ -17,11 +17,11 @@
   "period",
   "column_break_period",
   "frequency",
-  "column_break_frequency",
+  "filters_section",
   "service_type",
-  "column_break_service_type",
+  "column_break_sfgo",
   "service_provider",
-  "column_break_service_provider",
+  "column_break_kwpc",
   "contractor",
   "section_break_meal_forms",
   "meal_forms",
@@ -108,18 +108,10 @@
    "options": "Daily\nWeekly\nMonthly\nCustom"
   },
   {
-   "fieldname": "column_break_frequency",
-   "fieldtype": "Column Break"
-  },
-  {
    "fieldname": "service_type",
    "fieldtype": "Link",
    "label": "Service Type",
    "options": "Meal Type"
-  },
-  {
-   "fieldname": "column_break_service_type",
-   "fieldtype": "Column Break"
   },
   {
    "fieldname": "service_provider",
@@ -127,10 +119,6 @@
    "label": "Service Provider",
    "link_filters": "[[\"Meal Provider\",\"active\",\"=\",1]]",
    "options": "Meal Provider"
-  },
-  {
-   "fieldname": "column_break_service_provider",
-   "fieldtype": "Column Break"
   },
   {
    "fieldname": "contractor",
@@ -263,13 +251,26 @@
    "print_hide": 1,
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "fieldname": "filters_section",
+   "fieldtype": "Section Break",
+   "label": "Filters"
+  },
+  {
+   "fieldname": "column_break_sfgo",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_kwpc",
+   "fieldtype": "Column Break"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-03-15 17:00:05.856281",
+ "modified": "2026-04-14 18:25:41.803834",
  "modified_by": "Administrator",
  "module": "HR VentureForce Global",
  "name": "Service Billing",

@@ -35,7 +35,7 @@ app_license = "MIT"
 fixtures = [
 	{
 		"doctype": "Custom HTML Block",
-		"filters": [["name", "in", ["Service Workspace Hub"]]],
+		"filters": [["name", "in", ["Service Workspace Hub", "HR Attendance Overtime Hub"]]],
 	}
 ]
 
@@ -111,7 +111,19 @@ override_doctype_class = {
 doc_events = {
 	"Salary Slip": {
 		"validate": "hr_vfg.hr_ventureforce_global.salary_slip_override.add_leaves",
-	}
+	},
+	"Timesheet": {
+		"validate": "hr_vfg.hr_ventureforce_global.payroll_cutoff.enforce_payroll_cutoff",
+	},
+	"Employee Timesheet": {
+		"validate": "hr_vfg.hr_ventureforce_global.payroll_cutoff.enforce_payroll_cutoff",
+	},
+	"Late Over Time": {
+		"validate": "hr_vfg.hr_ventureforce_global.payroll_cutoff.enforce_payroll_cutoff",
+	},
+	"Late Over Time Employee Wise": {
+		"validate": "hr_vfg.hr_ventureforce_global.payroll_cutoff.enforce_payroll_cutoff",
+	},
 }
 
 # Scheduled Tasks

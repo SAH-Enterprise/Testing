@@ -4,7 +4,7 @@
 frappe.ui.form.on("Service Billing", {
 	refresh(frm) {
 		if (frm.doc.docstatus === 0) {
-			frm.add_custom_button("Fetch Meal Forms", () => {
+			frm.add_custom_button("Fetch Data", () => {
 				if (!frm.doc.from_date || !frm.doc.to_date) {
 					frappe.msgprint("Please set From Date and To Date before fetching.");
 					return;

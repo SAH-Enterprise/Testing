@@ -363,7 +363,8 @@ def get_meal_forms(from_date, to_date, meal_type=None, meal_provider=None, contr
 
 	return {
 		"meal_forms": filtered_meal_forms,
-		"service_details": [d for d in service_details if d.get("meal_form") not in non_allowed_meal_forms]
-		+ extra_service_details,
+		# Keep all actual Service Charges CT rows; for non-standard meal types also append
+		# an aggregate line derived from Meal Form totals.
+		"service_details": service_details + extra_service_details,
 		"meal_type_item_map": meal_type_map,
 	}

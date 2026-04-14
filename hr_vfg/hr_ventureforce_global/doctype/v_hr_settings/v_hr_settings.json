@@ -36,6 +36,7 @@
   "period_from",
   "column_break_4",
   "period_to",
+  "payroll_cut_off_date",
   "absent_sandwich_section",
   "absent_sandwich",
   "halfday_sandwich_section",
@@ -130,6 +131,12 @@
    "fieldname": "period_to",
    "fieldtype": "Int",
    "label": "Period To"
+  },
+  {
+   "description": "After this date, creation of Timesheet and Late Over Time documents will be blocked.",
+   "fieldname": "payroll_cut_off_date",
+   "fieldtype": "Date",
+   "label": "Payroll Cut Off Date"
   },
   {
    "fieldname": "night_shift_start_time",
