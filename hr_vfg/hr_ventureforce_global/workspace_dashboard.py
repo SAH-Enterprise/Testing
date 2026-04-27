@@ -1,3 +1,4 @@
+from calendar import monthrange
 from datetime import date
 
 import frappe
@@ -154,6 +155,15 @@ def get_hr_attendance_overtime_workspace_data():
 	current_key = _month_key(current_month)
 	current_attendance = attendance_map[current_key]
 	current_late_ot = late_ot_map[current_key]
+	current_days_in_month = monthrange(today.year, today.month)[1]
+	month_progress_ratio = (today.day / current_days_in_month) if current_days_in_month else 1.0
+	month_progress_ratio = max(0.0, min(1.0, month_progress_ratio))
+
+	# Employee Attendance monthly records are often full-month projections.
+	# Scale only current-month absent values by month progress for workspace readability.
+	if current_attendance["absents"] > 0 and month_progress_ratio < 1.0:
+		current_attendance["absents"] = round(current_attendance["absents"] * month_progress_ratio, 2)
+		attendance_map[current_key]["absents"] = current_attendance["absents"]
 
 	department_rows = frappe.db.sql(
 		"""
@@ -163,6 +173,8 @@ def get_hr_attendance_overtime_workspace_data():
 			sum(cast(coalesce(nullif(total_working_days, ''), '0') as decimal(18,2))) as working_days,
 			sum(cast(coalesce(nullif(total_lates, ''), '0') as decimal(18,2))) as late_marks,
 			sum(cast(coalesce(nullif(total_absents, ''), '0') as decimal(18,2))) as absents,
+			sum(cast(coalesce(nullif(total_absent_check_in_missing, ''), '0') as decimal(18,2))) as missed_check_in,
+			sum(cast(coalesce(nullif(total_absent_missing_check_out, ''), '0') as decimal(18,2))) as missed_check_out,
 			sum(cast(coalesce(nullif(over_time, ''), '0') as decimal(18,2))) as overtime_hours,
 			sum(cast(coalesce(nullif(approved_overtime_le, ''), '0') as decimal(18,2))) as approved_overtime_hours
 		from `tabEmployee Attendance`
@@ -180,6 +192,8 @@ def get_hr_attendance_overtime_workspace_data():
 	department_overtime_hours = []
 	department_late_marks = []
 	department_absents = []
+	department_missed_check_in = []
+	department_missed_check_out = []
 
 	for row in department_rows:
 		present_days = _to_float(row.present_days)
@@ -190,6 +204,8 @@ def get_hr_attendance_overtime_workspace_data():
 		department_overtime_hours.append(round(_to_float(row.overtime_hours), 2))
 		department_late_marks.append(round(_to_float(row.late_marks), 2))
 		department_absents.append(round(_to_float(row.absents), 2))
+		department_missed_check_in.append(round(_to_float(row.missed_check_in), 2))
+		department_missed_check_out.append(round(_to_float(row.missed_check_out), 2))
 
 	return {
 		"months": [_month_label(month) for month in months],
@@ -210,6 +226,8 @@ def get_hr_attendance_overtime_workspace_data():
 		"department_overtime_hours": department_overtime_hours,
 		"department_late_marks": department_late_marks,
 		"department_absents": department_absents,
+		"department_missed_check_in": department_missed_check_in,
+		"department_missed_check_out": department_missed_check_out,
 		"kpis": {
 			"month_label": _month_label(current_key),
 			"attendance_docs": current_attendance["attendance_docs"],

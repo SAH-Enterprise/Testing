@@ -1,6 +1,16 @@
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from datetime import datetime, timedelta
+
+
+def _set_payment_entry_posting_datetime(pe, posting_date=None, posting_time=None, fallback_date=None):
+    """Set Payment Entry posting_date. Payment Entry has no posting_time field in core ERPNext; time is stored in Remarks."""
+    pe.posting_date = posting_date or fallback_date
+    if posting_time and str(posting_time).strip():
+        line = _("Posting time: {0}").format(posting_time)
+        existing = (pe.get("remarks") or "").strip()
+        pe.remarks = f"{existing}\n{line}".strip() if existing else line
 
 class EmployeeAdvanceBulk(Document):
     def validate(self):
@@ -80,7 +90,15 @@ class EmployeeAdvanceBulk(Document):
         frappe.msgprint("Employee Advances created successfully. Use 'Create Disbursed Payment' button to create payment entries.")
 
     @frappe.whitelist()
-    def create_disbursed_payment(self, payment_account=None, mode_of_payment=None, reference_no=None, reference_date=None):
+    def create_disbursed_payment(
+        self,
+        payment_account=None,
+        mode_of_payment=None,
+        reference_no=None,
+        reference_date=None,
+        payment_entry_posting_date=None,
+        payment_entry_posting_time=None,
+    ):
         """Create Payment Entry for disbursement after document is submitted"""
         # Get the document if called from JavaScript
         if not hasattr(self, 'name') or not self.name:
@@ -92,6 +110,10 @@ class EmployeeAdvanceBulk(Document):
                 reference_no = frappe.form_dict.get('reference_no')
             if not reference_date:
                 reference_date = frappe.form_dict.get('reference_date')
+            if not payment_entry_posting_date:
+                payment_entry_posting_date = frappe.form_dict.get('payment_entry_posting_date')
+            if payment_entry_posting_time is None:
+                payment_entry_posting_time = frappe.form_dict.get('payment_entry_posting_time')
         
         if self.docstatus != 1:
             frappe.throw("Document must be submitted before creating payment entries.")
@@ -178,7 +200,12 @@ class EmployeeAdvanceBulk(Document):
                                                                row.employee_name,
                                                                "employee_name")
                 pe.company                    = self.company
-                pe.posting_date               = self.posting_date
+                _set_payment_entry_posting_datetime(
+                    pe,
+                    posting_date=payment_entry_posting_date,
+                    posting_time=payment_entry_posting_time,
+                    fallback_date=self.posting_date,
+                )
 
                 pe.paid_from                  = cash_acct
                 pe.paid_from_account_currency = curr
@@ -297,10 +324,25 @@ class EmployeeAdvanceBulk(Document):
     
 
 @frappe.whitelist()
-def create_disbursed_payment(docname, payment_account=None, mode_of_payment=None, reference_no=None, reference_date=None):
+def create_disbursed_payment(
+    docname,
+    payment_account=None,
+    mode_of_payment=None,
+    reference_no=None,
+    reference_date=None,
+    payment_entry_posting_date=None,
+    payment_entry_posting_time=None,
+):
     """Standalone function to create disbursed payment entries"""
     doc = frappe.get_doc("Employee Advance Bulk", docname)
-    return doc.create_disbursed_payment(payment_account, mode_of_payment, reference_no, reference_date)
+    return doc.create_disbursed_payment(
+        payment_account,
+        mode_of_payment,
+        reference_no,
+        reference_date,
+        payment_entry_posting_date,
+        payment_entry_posting_time,
+    )
 
 @frappe.whitelist()
 def get_dashboard_data():

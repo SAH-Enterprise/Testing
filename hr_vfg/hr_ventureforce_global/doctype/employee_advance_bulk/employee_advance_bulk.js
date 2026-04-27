@@ -42,6 +42,21 @@ function create_disbursed_payment(frm) {
             'options': 'Mode of Payment',
             'reqd': 1,
             'description': 'Select the mode of payment (e.g., Cash, Bank, Cheque)'
+        },
+        {
+            'fieldname': 'payment_entry_posting_date',
+            'fieldtype': 'Date',
+            'label': __('Posting Date'),
+            'reqd': 1,
+            'default': frm.doc.posting_date || frappe.datetime.get_today(),
+            'description': __('Posting date on the Payment Entry')
+        },
+        {
+            'fieldname': 'payment_entry_posting_time',
+            'fieldtype': 'Time',
+            'label': __('Posting Time'),
+            'reqd': 0,
+            'default': frappe.datetime.now_time()
         }
     ], function(values) {
         if (values.payment_account && values.mode_of_payment) {
@@ -74,11 +89,11 @@ function create_disbursed_payment(frm) {
                             }
                         ], function(bank_values) {
                             // Call server method with bank reference fields
-                            create_payment_entries(frm, values.payment_account, values.mode_of_payment, bank_values.reference_no, bank_values.reference_date);
+                            create_payment_entries(frm, values.payment_account, values.mode_of_payment, bank_values.reference_no, bank_values.reference_date, values.payment_entry_posting_date, values.payment_entry_posting_time);
                         }, __('Bank Transaction Details'), __('Continue'));
                     } else {
                         // Not a bank mode, proceed without reference fields
-                        create_payment_entries(frm, values.payment_account, values.mode_of_payment, null, null);
+                        create_payment_entries(frm, values.payment_account, values.mode_of_payment, null, null, values.payment_entry_posting_date, values.payment_entry_posting_time);
                     }
                 }
             });
@@ -86,7 +101,7 @@ function create_disbursed_payment(frm) {
     }, __('Select Payment Details'), __('Create Payment'));
 }
 
-function create_payment_entries(frm, payment_account, mode_of_payment, reference_no, reference_date) {
+function create_payment_entries(frm, payment_account, mode_of_payment, reference_no, reference_date, payment_entry_posting_date, payment_entry_posting_time) {
     frappe.call({
         method: 'hr_vfg.hr_ventureforce_global.doctype.employee_advance_bulk.employee_advance_bulk.create_disbursed_payment',
         args: {
@@ -94,7 +109,9 @@ function create_payment_entries(frm, payment_account, mode_of_payment, reference
             payment_account: payment_account,
             mode_of_payment: mode_of_payment,
             reference_no: reference_no,
-            reference_date: reference_date
+            reference_date: reference_date,
+            payment_entry_posting_date: payment_entry_posting_date,
+            payment_entry_posting_time: payment_entry_posting_time
         },
         callback: function(r) {
             if (r.exc) {
