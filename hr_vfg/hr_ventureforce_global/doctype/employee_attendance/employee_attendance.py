@@ -1018,6 +1018,86 @@ class EmployeeAttendance(Document):
                                                         data.estimated_late = f"{hours:02}:{minutes:02}:{seconds:02}"
                                                         break
 
+                            if (
+                                data.day_type == "Weekly Off"
+                                and not data.estimated_late
+                                and data.check_in_1
+                                and data.check_out_1
+                                and data.difference1
+                                and data.early == 0
+                            ):
+                                shift_ass = self._get_shift_assignment_for_date(data.date)
+                                if shift_ass:
+                                    shift_doc_weekoff = frappe.get_doc("Shift Type", shift_ass.get("shift_type"))
+                                    weekend_slab = getattr(shift_doc_weekoff, "custom_slab", None)
+                                    if weekend_slab:
+                                        weekend_rows = frappe.get_all(
+                                            "Over Time Slab CT",
+                                            filters={"parent": weekend_slab, "type": data.day_type},
+                                            fields=[
+                                                "from_time",
+                                                "to_time",
+                                                "per_hour_calculation",
+                                                "over_time_threshold",
+                                                "fixed_hour",
+                                            ],
+                                            limit_page_length=50,
+                                        )
+                                        if weekend_rows:
+                                            ci_dt = datetime.strptime(data.check_in_1, "%H:%M:%S")
+                                            co_dt = datetime.strptime(data.check_out_1, "%H:%M:%S")
+                                            if co_dt < ci_dt:
+                                                co_dt += timedelta(days=1)
+                                            actual_work_time = co_dt - ci_dt
+
+                                            for record in weekend_rows:
+                                                from_time = (datetime.min + record["from_time"]).time() if isinstance(record["from_time"], timedelta) else datetime.strptime(record["from_time"], "%H:%M:%S").time()
+                                                to_time = (datetime.min + record["to_time"]).time() if isinstance(record["to_time"], timedelta) else datetime.strptime(record["to_time"], "%H:%M:%S").time()
+
+                                                if from_time <= to_time:
+                                                    in_time_range = from_time <= co_dt.time() <= to_time
+                                                else:
+                                                    in_time_range = co_dt.time() >= from_time or co_dt.time() <= to_time
+
+                                                if not in_time_range:
+                                                    continue
+
+                                                threshold = record.get("over_time_threshold")
+                                                if isinstance(threshold, timedelta):
+                                                    threshold_timedelta = threshold
+                                                elif threshold:
+                                                    threshold_timedelta = timedelta(hours=float(threshold))
+                                                else:
+                                                    threshold_timedelta = timedelta(0)
+
+                                                if actual_work_time < threshold_timedelta:
+                                                    continue
+
+                                                fixed_hour = record.get("fixed_hour")
+                                                if isinstance(fixed_hour, timedelta):
+                                                    fixed_hour_timedelta = fixed_hour
+                                                elif fixed_hour:
+                                                    fixed_hour_timedelta = timedelta(hours=float(fixed_hour))
+                                                else:
+                                                    fixed_hour_timedelta = timedelta(0)
+
+                                                total_overtime = timedelta(
+                                                    seconds=actual_work_time.total_seconds() * record["per_hour_calculation"]
+                                                ) + fixed_hour_timedelta
+
+                                                total_seconds = int(total_overtime.total_seconds())
+                                                hours = total_seconds // 3600
+                                                minutes = (total_seconds % 3600) // 60
+                                                seconds = total_seconds % 60
+
+                                                if hr_settings.overtime_round_off == 1:
+                                                    rounded_seconds = round(total_seconds / 1800) * 1800
+                                                    hours, remainder = divmod(rounded_seconds, 3600)
+                                                    minutes, seconds = divmod(remainder, 60)
+
+                                                data.estimated_late = f"{hours:02}:{minutes:02}:{seconds:02}"
+                                                break
+
 
 
                                         
@@ -1599,25 +1679,22 @@ class EmployeeAttendance(Document):
                                             shift_out_time = datetime.strptime(shift_out_str, "%H:%M:%S")
                                             check_out_1_time = datetime.strptime(check_out_1_str, "%H:%M:%S")
                                             shift_in_time = datetime.strptime(shift_in_str, "%H:%M:%S")
+                                            check_in_1_time = datetime.strptime(check_in_1_str, "%H:%M:%S")
                                             
                                             difference1 = timedelta()
-                                             
-                                            # Use day_type, not over_time_type: over_time_type is assigned later in the
-                                            # slab loop and is often stale (e.g. still "Weekly Off"), which skips this
-                                            # logic and leaves difference1 at 00:00:00.
-                                            is_overnight_shift = shift_in_time > shift_out_time
 
-                                            if check_out_1_time > shift_out_time and data.day_type != "Weekly Off":
-                                                difference1 = check_out_1_time - shift_out_time
-                                            elif (
-                                                check_out_1_time < shift_out_time
-                                                and data.day_type != "Weekly Off"
-                                                and is_overnight_shift
-                                            ):
-                                                check_out_1_time += timedelta(days=1)
-                                                difference1 = check_out_1_time - shift_out_time
-                                            
-                                            if check_out_1_time < shift_out_time and data.day_type == "Weekly Off":
+                                            shift_out_dt = shift_out_time
+                                            check_out_dt = check_out_1_time
+
+                                            if shift_in_time > shift_out_time:
+                                                shift_out_dt += timedelta(days=1)
+                                            if check_out_1_time < check_in_1_time:
+                                                check_out_dt += timedelta(days=1)
+
+                                            if data.day_type != "Weekly Off" and check_out_dt > shift_out_dt:
+                                                difference1 = check_out_dt - shift_out_dt
+
+                                            if data.day_type == "Weekly Off":
                                                 co_dt = datetime.strptime(check_out_1_str, "%H:%M:%S")
                                                 ci_dt = datetime.strptime(check_in_1_str, "%H:%M:%S")
                                                 if co_dt < ci_dt:
@@ -1753,24 +1830,29 @@ class EmployeeAttendance(Document):
                             and isinstance(shift_in_str_1, str)
                         ):
                             try:
-                                shift_in_time = datetime.strptime(shift_in_str_1, "%H:%M:%S").time()
-                                shift_out_time = datetime.strptime(shift_out_str, "%H:%M:%S").time()
-                                check_out_1_time = datetime.strptime(check_out_1_str, "%H:%M:%S").time()
-                                is_overnight_shift = shift_in_time > shift_out_time
+                                shift_in_dt = datetime.strptime(shift_in_str_1, "%H:%M:%S")
+                                shift_out_dt = datetime.strptime(shift_out_str, "%H:%M:%S")
+                                check_out_dt = datetime.strptime(check_out_1_str, "%H:%M:%S")
+                                shift_in_time = shift_in_dt.time()
+                                shift_out_time = shift_out_dt.time()
+                                check_out_1_time = check_out_dt.time()
 
                                 if data.day_type == "Weekly Off" and isinstance(check_in_1_str, str):
                                     ci_dt = datetime.strptime(check_in_1_str, "%H:%M:%S")
-                                    co_dt = datetime.strptime(check_out_1_str, "%H:%M:%S")
-                                    if co_dt < ci_dt:
-                                        co_dt += timedelta(days=1)
-                                    time_difference_delta = co_dt - ci_dt
+                                    check_in_1_time = ci_dt.time()
+                                    if check_out_dt < ci_dt:
+                                        check_out_dt += timedelta(days=1)
+                                    time_difference_delta = check_out_dt - ci_dt
                                 else:
-                                    so_dt = datetime.combine(datetime.today(), shift_out_time)
-                                    co_dt = datetime.combine(datetime.today(), check_out_1_time)
-                                    if is_overnight_shift and co_dt < so_dt:
-                                        co_dt += timedelta(days=1)
-                                    if co_dt > so_dt:
-                                        time_difference_delta = co_dt - so_dt
+                                    if shift_in_dt > shift_out_dt:
+                                        shift_out_dt += timedelta(days=1)
+                                    if isinstance(check_in_1_str, str):
+                                        check_in_dt = datetime.strptime(check_in_1_str, "%H:%M:%S")
+                                        check_in_1_time = check_in_dt.time()
+                                        if check_out_dt < check_in_dt:
+                                            check_out_dt += timedelta(days=1)
+                                    if check_out_dt > shift_out_dt:
+                                        time_difference_delta = check_out_dt - shift_out_dt
                                     else:
                                         time_difference_delta = timedelta(0)
 
@@ -3005,6 +3087,98 @@ class EmployeeAttendance(Document):
                 previous = data
         
         # Recalculate all overtime totals after all values are set (including updates from forms)
+        def backfill_weekly_off_estimated_late(row):
+            if not (
+                row.day_type == "Weekly Off"
+                and not row.estimated_late
+                and row.check_in_1
+                and row.check_out_1
+                and row.difference1
+                and row.early == 0
+            ):
+                return
+
+            shift_ass = self._get_shift_assignment_for_date(row.date)
+            if not shift_ass:
+                return
+
+            shift_doc_weekoff = frappe.get_doc("Shift Type", shift_ass.get("shift_type"))
+            weekend_slab = getattr(shift_doc_weekoff, "custom_slab", None)
+            if not weekend_slab:
+                return
+
+            weekend_rows = frappe.get_all(
+                "Over Time Slab CT",
+                filters={"parent": weekend_slab, "type": row.day_type},
+                fields=[
+                    "from_time",
+                    "to_time",
+                    "per_hour_calculation",
+                    "over_time_threshold",
+                    "fixed_hour",
+                ],
+                limit_page_length=50,
+            )
+            if not weekend_rows:
+                return
+
+            ci_dt = datetime.strptime(row.check_in_1, "%H:%M:%S")
+            co_dt = datetime.strptime(row.check_out_1, "%H:%M:%S")
+            if co_dt < ci_dt:
+                co_dt += timedelta(days=1)
+            actual_work_time = co_dt - ci_dt
+
+            for record in weekend_rows:
+                from_time = (datetime.min + record["from_time"]).time() if isinstance(record["from_time"], timedelta) else datetime.strptime(record["from_time"], "%H:%M:%S").time()
+                to_time = (datetime.min + record["to_time"]).time() if isinstance(record["to_time"], timedelta) else datetime.strptime(record["to_time"], "%H:%M:%S").time()
+
+                if from_time <= to_time:
+                    in_time_range = from_time <= co_dt.time() <= to_time
+                else:
+                    in_time_range = co_dt.time() >= from_time or co_dt.time() <= to_time
+
+                if not in_time_range:
+                    continue
+
+                threshold = record.get("over_time_threshold")
+                if isinstance(threshold, timedelta):
+                    threshold_timedelta = threshold
+                elif threshold:
+                    threshold_timedelta = timedelta(hours=float(threshold))
+                else:
+                    threshold_timedelta = timedelta(0)
+
+                if actual_work_time < threshold_timedelta:
+                    continue
+
+                fixed_hour = record.get("fixed_hour")
+                if isinstance(fixed_hour, timedelta):
+                    fixed_hour_timedelta = fixed_hour
+                elif fixed_hour:
+                    fixed_hour_timedelta = timedelta(hours=float(fixed_hour))
+                else:
+                    fixed_hour_timedelta = timedelta(0)
+
+                total_overtime = timedelta(
+                    seconds=actual_work_time.total_seconds() * record["per_hour_calculation"]
+                ) + fixed_hour_timedelta
+
+                total_seconds = int(total_overtime.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+
+                if hr_settings.overtime_round_off == 1:
+                    rounded_seconds = round(total_seconds / 1800) * 1800
+                    hours, remainder = divmod(rounded_seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+
+                row.estimated_late = f"{hours:02}:{minutes:02}:{seconds:02}"
+                return
+
+        for row in self.table1:
+            backfill_weekly_off_estimated_late(row)
+
         # Reset counters
         total_seconds1_recalc = 0  # For early_ot
         total_seconds2_recalc = 0  # For late_sitting (estimated_late)
