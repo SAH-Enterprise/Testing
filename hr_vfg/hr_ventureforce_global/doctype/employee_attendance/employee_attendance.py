@@ -1605,11 +1605,16 @@ class EmployeeAttendance(Document):
                                             # Use day_type, not over_time_type: over_time_type is assigned later in the
                                             # slab loop and is often stale (e.g. still "Weekly Off"), which skips this
                                             # logic and leaves difference1 at 00:00:00.
-                                            if check_out_1_time < shift_out_time and data.day_type != "Weekly Off":
-                                                check_out_1_time += timedelta(days=1)
-                                                difference1 = check_out_1_time - shift_out_time
-                                            
+                                            is_overnight_shift = shift_in_time > shift_out_time
+
                                             if check_out_1_time > shift_out_time and data.day_type != "Weekly Off":
+                                                difference1 = check_out_1_time - shift_out_time
+                                            elif (
+                                                check_out_1_time < shift_out_time
+                                                and data.day_type != "Weekly Off"
+                                                and is_overnight_shift
+                                            ):
+                                                check_out_1_time += timedelta(days=1)
                                                 difference1 = check_out_1_time - shift_out_time
                                             
                                             if check_out_1_time < shift_out_time and data.day_type == "Weekly Off":
@@ -1742,10 +1747,16 @@ class EmployeeAttendance(Document):
 
                         # Calculate OT time delta directly from checkout/shift times so it does not
                         # depend on data.difference1 being pre-populated.
-                        if isinstance(shift_out_str, str) and isinstance(check_out_1_str, str):
+                        if (
+                            isinstance(shift_out_str, str)
+                            and isinstance(check_out_1_str, str)
+                            and isinstance(shift_in_str_1, str)
+                        ):
                             try:
+                                shift_in_time = datetime.strptime(shift_in_str_1, "%H:%M:%S").time()
                                 shift_out_time = datetime.strptime(shift_out_str, "%H:%M:%S").time()
                                 check_out_1_time = datetime.strptime(check_out_1_str, "%H:%M:%S").time()
+                                is_overnight_shift = shift_in_time > shift_out_time
 
                                 if data.day_type == "Weekly Off" and isinstance(check_in_1_str, str):
                                     ci_dt = datetime.strptime(check_in_1_str, "%H:%M:%S")
@@ -1756,9 +1767,12 @@ class EmployeeAttendance(Document):
                                 else:
                                     so_dt = datetime.combine(datetime.today(), shift_out_time)
                                     co_dt = datetime.combine(datetime.today(), check_out_1_time)
-                                    if co_dt < so_dt:
+                                    if is_overnight_shift and co_dt < so_dt:
                                         co_dt += timedelta(days=1)
-                                    time_difference_delta = co_dt - so_dt
+                                    if co_dt > so_dt:
+                                        time_difference_delta = co_dt - so_dt
+                                    else:
+                                        time_difference_delta = timedelta(0)
 
                                 total_seconds = int(time_difference_delta.total_seconds())
                                 hours = total_seconds // 3600

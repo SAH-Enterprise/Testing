@@ -23,4 +23,4 @@ def _resolve_document_date(doc):
 def enforce_payroll_cutoff(doc, method=None):
 	# Payroll cut-off enforcement is disabled. Keep the hook in place so it can be
 	# re-enabled later without changing the event bindings again.
-	return
+	return	
