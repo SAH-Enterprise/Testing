@@ -56,11 +56,12 @@ class LateOverTime(Document):
 	def get_data(self):
 		# Correct the SQL query to only include the required argument (self.date)
 		rec = frappe.db.sql("""
-			select p.employee, p.employee_name, p.designation, c.estimated_late,c.check_in_1, c.check_out_1, c.approved_ot1, c.name as child_name, p.name as parent_name 
+			select p.employee, p.employee_name, p.designation, c.estimated_late, c.late_sitting,
+				c.check_in_1, c.check_out_1, c.approved_ot1, c.name as child_name, p.name as parent_name
 			from `tabEmployee Attendance` p
 			LEFT JOIN `tabEmployee Attendance Table` c ON c.parent=p.name
-			where c.date=%s and estimated_late is not null and (c.approved_ot1 = '' or c.approved_ot1 is null or c.approved_ot1 = '00:00:00') 
-		""", (self.date, ), as_dict=1)  # Only pass self.date, not self.ot_frequency
+			where c.date=%s and estimated_late is not null and (c.approved_ot1 = '' or c.approved_ot1 is null or c.approved_ot1 = '00:00:00')
+		""", (self.date,), as_dict=1)
 		
 		if rec:
 			self.details = []
@@ -71,13 +72,14 @@ class LateOverTime(Document):
 						self.append("details", {
 							"employee": r.employee,
 							"actual_overtime": r.estimated_late,
-							"check_in":r.check_in_1,
-							"check_out":r.check_out_1,
+							"late_sitting": r.late_sitting,
+							"check_in": r.check_in_1,
+							"check_out": r.check_out_1,
 							"approved_overtime": r.estimated_late,
 							"employee_name": r.employee_name,
 							"designation": r.designation,
 							"att_ref": r.parent_name,
-							"att_child_ref": r.child_name
+							"att_child_ref": r.child_name,
 						})
 			self.save()
 

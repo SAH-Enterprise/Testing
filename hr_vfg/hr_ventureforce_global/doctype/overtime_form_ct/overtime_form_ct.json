@@ -11,6 +11,7 @@
   "designation",
   "check_in",
   "check_out",
+  "late_sitting",
   "actual_overtime",
   "approved_overtime",
   "reason",
@@ -95,6 +96,15 @@
    "in_preview": 1,
    "in_standard_filter": 1,
    "label": "Check Out",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "late_sitting",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "label": "Late Sitting",
    "read_only": 1
   }
  ],
