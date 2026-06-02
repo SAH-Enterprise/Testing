@@ -11,6 +11,9 @@
   "designation",
   "check_in",
   "check_out",
+  "shift_in",
+  "shift_out",
+  "day_type",
   "late_sitting",
   "actual_overtime",
   "approved_overtime",
@@ -91,21 +94,40 @@
   {
    "columns": 1,
    "fieldname": "check_out",
-   "fieldtype": "Data",
+   "fieldtype": "Time",
    "in_list_view": 1,
    "in_preview": 1,
    "in_standard_filter": 1,
    "label": "Check Out",
+   "read_only": 0
+  },
+  {
+   "fieldname": "shift_in",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Shift In",
    "read_only": 1
   },
   {
-   "columns": 1,
+   "fieldname": "shift_out",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Shift Out",
+   "read_only": 1
+  },
+  {
+   "fieldname": "day_type",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Day Type",
+   "read_only": 1
+  },
+  {
    "fieldname": "late_sitting",
    "fieldtype": "Time",
-   "in_list_view": 1,
-   "in_preview": 1,
+   "hidden": 1,
    "label": "Late Sitting",
-   "read_only": 0
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
