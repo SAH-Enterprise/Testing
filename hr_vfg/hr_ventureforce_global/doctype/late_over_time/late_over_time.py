@@ -206,7 +206,7 @@ class LateOverTime(Document):
 					"child_ref": r.att_child_ref,
 					"approved_ot1": r.approved_overtime,
 				}
-			)+
+			)
 
 		frappe.db.commit()
 
