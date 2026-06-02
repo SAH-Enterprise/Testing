@@ -7,7 +7,47 @@ from datetime import datetime, timedelta
 class LateOverTime(Document):
 	def validate(self):
 		self.month_and_year()
+		self.set_approved_overtime_from_late_sitting()
 		self.total_ot()
+
+	def set_approved_overtime_from_late_sitting(self):
+		"""Approved OT = Late Sitting * 1.5 (row-wise)."""
+		def _time_to_seconds(val):
+			if not val:
+				return 0
+			if isinstance(val, str):
+				raw = val.strip()
+				if not raw:
+					return 0
+				# Accept: "H:M", "H:M:S", "H:M:S.micro", "HH:MM:SS"
+				parts = [p for p in raw.split(":") if p != ""]
+				if not parts:
+					return 0
+				while len(parts) < 3:
+					parts.append("0")
+				h_str, m_str, s_str = parts[0], parts[1], parts[2]
+				try:
+					h = int(float(h_str))
+					m = int(float(m_str))
+					s = float(s_str)
+				except (ValueError, TypeError):
+					return 0
+				return (h * 3600) + (m * 60) + s
+			if isinstance(val, timedelta):
+				return int(val.total_seconds())
+			return 0
+
+		def _seconds_to_time_str(seconds: float) -> str:
+			sec = int(round(max(0, seconds)))
+			h = sec // 3600
+			sec = sec % 3600
+			m = sec // 60
+			s = sec % 60
+			return f"{h:02d}:{m:02d}:{s:02d}"
+
+		for row in self.details or []:
+			late_seconds = _time_to_seconds(getattr(row, "late_sitting", None))
+			row.approved_overtime = _seconds_to_time_str(late_seconds * 1.5)
 
 	def month_and_year(self):
 		date_str = str(self.date)

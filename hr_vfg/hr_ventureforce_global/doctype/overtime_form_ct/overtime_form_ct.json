@@ -105,7 +105,7 @@
    "in_list_view": 1,
    "in_preview": 1,
    "label": "Late Sitting",
-   "read_only": 1
+   "read_only": 0
   }
  ],
  "grid_page_length": 50,
