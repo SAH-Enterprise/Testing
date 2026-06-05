@@ -1,3 +1,5 @@
+import json
+
 import frappe
 from frappe import _
 from frappe.desk.reportview import get_filters_cond, get_match_cond
@@ -10,6 +12,7 @@ from frappe.utils import (
 	comma_and,
 	date_diff,
 	flt,
+	get_link_to_form,
 	getdate,
 )
 from hrms.payroll.doctype.payroll_entry.payroll_entry import get_existing_salary_slips
@@ -244,7 +247,41 @@ def create_salary_slips(self):
 				# since this method is called via frm.call this doc needs to be updated manually
 				self.reload()
 				
-def create_salary_slips_for_employees(employees, args, publish_progress=True):
+def _get_payroll_error_message(error):
+    message_log = frappe.message_log.pop() if frappe.message_log else str(error)
+
+    try:
+        if isinstance(message_log, str):
+            return json.loads(message_log).get("message") or str(error)
+
+        return message_log.get("message") or str(error)
+    except Exception:
+        return str(message_log or error)
+
+
+def _mark_payroll_entry_failed(args, error):
+    payroll_entry_name = args.get("payroll_entry")
+    if not payroll_entry_name:
+        return
+
+    error_log = frappe.log_error(
+        title=_("Salary Slip creation failed for Payroll Entry {0}").format(payroll_entry_name),
+        reference_doctype="Payroll Entry",
+        reference_name=payroll_entry_name,
+    )
+
+    error_message = _get_payroll_error_message(error)
+    if error_log:
+        error_message += "\n" + _("Check Error Log {0} for more details.").format(
+            get_link_to_form("Error Log", error_log.name)
+        )
+
+    payroll_entry = frappe.get_doc("Payroll Entry", payroll_entry_name)
+    payroll_entry.db_set({"error_message": error_message, "status": "Failed"})
+    payroll_entry.notify_update()
+
+
+def _create_salary_slips_for_employees(employees, args, publish_progress=True):
         salary_slips_exists_for = get_existing_salary_slips(employees, args)
         count = 0
         salary_slips_not_created = []
@@ -345,6 +382,17 @@ def create_salary_slips_for_employees(employees, args, publish_progress=True):
                 title=_("Message"),
                 indicator="orange",
             )
+
+
+def create_salary_slips_for_employees(employees, args, publish_progress=True):
+    try:
+        _create_salary_slips_for_employees(employees, args, publish_progress=publish_progress)
+    except Exception as e:
+        frappe.db.rollback()
+        _mark_payroll_entry_failed(args, e)
+    finally:
+        frappe.db.commit()
+        frappe.publish_realtime("completed_salary_slip_creation", user=frappe.session.user)
 
 
 
