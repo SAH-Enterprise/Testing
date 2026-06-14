@@ -67,7 +67,6 @@ class EarlyOverTimeForm(Document):
 				"approved_eot": r.approved_early_over_time
 			})
 		
-		frappe.db.commit()
 		
 		# Update each parent document once with all its child updates
 		for parent_name, updates in parent_docs.items():
@@ -87,7 +86,6 @@ class EarlyOverTimeForm(Document):
 				
 				# Save the document - this will trigger validate() and recalculate all totals
 				doc.save(ignore_permissions=True)
-				frappe.db.commit()
 				
 			except Exception as e:
 				frappe.log_error(
@@ -115,7 +113,6 @@ class EarlyOverTimeForm(Document):
 				"child_ref": r.att_child_ref
 			})
 		
-		frappe.db.commit()
 		
 		# Update each parent document once with all its child updates
 		for parent_name, updates in parent_docs.items():
@@ -135,7 +132,6 @@ class EarlyOverTimeForm(Document):
 				
 				# Save the document - this will trigger validate() and recalculate all totals
 				doc.save(ignore_permissions=True)
-				frappe.db.commit()
 				
 			except Exception as e:
 				frappe.log_error(

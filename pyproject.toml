@@ -1,0 +1,18 @@
+[project]
+name = "hr_vfg"
+authors = [
+    { name = "VFG", email = "shahrukh@telniasoft.com" }
+]
+description = "HR VentureForce Global"
+requires-python = ">=3.14,<3.15"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = [
+    "frappe>=16.0.0,<17.0.0",  # Installed and managed by bench.
+    "zk==0.8.5",
+    "pyzk==0.9",
+]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"

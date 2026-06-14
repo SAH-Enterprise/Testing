@@ -287,7 +287,6 @@ def get_attendance_in_test2(args):
 					biometric_list.append(bid.biometric_id)
 				frappe.db.sql(""" delete from `tabAttendance Logs` where attendance_date >= %s and attendance_date <= %s and ip="115.167.64.233:4370"{0} """.format(condition2), (args.get("from_date"),args.get("to_date")))
 				frappe.db.sql(""" update `tabEmployee Attendance Table` set check_in_1=NULL, check_out_1=NULL, late_sitting=NULL, night_switch=0 where date >= %s and date <= %s and ip="115.167.64.233:4370"{0} """.format(condition1), (args.get("from_date"),args.get("to_date")))
-				frappe.db.commit()
 				for attend1 in attendance:
 					if getdate(str(attend1).split()[3]) < getdate(args.get("from_date")) or getdate(str(attend1).split()[3]) > getdate(args.get("to_date")):
 						continue
@@ -543,7 +542,6 @@ def get_attendance_in_test3(args):
 					biometric_list.append(bid.biometric_id)
 				frappe.db.sql(""" delete from `tabAttendance Logs` where attendance_date >= %s and attendance_date <= %s and ip="115.167.64.233:4370"{0} """.format(condition2), (args.get("from_date"),args.get("to_date")))
 				frappe.db.sql(""" update `tabEmployee Attendance Table` set check_in_1=NULL, check_out_1=NULL, late_sitting=NULL, night_switch=0 where date >= %s and date <= %s and ip="115.167.64.233:4370"{0} """.format(condition1), (args.get("from_date"),args.get("to_date")))
-				frappe.db.commit()
 				for attend1 in attendance:
 					if getdate(str(attend1).split()[3]) < getdate(args.get("from_date")) or getdate(str(attend1).split()[3]) > getdate(args.get("to_date")):
 						continue
@@ -728,7 +726,6 @@ def get_attendance_in_test4(args):
 					biometric_list.append(bid.biometric_id)
 				frappe.db.sql(""" delete from `tabAttendance Logs` where attendance_date >= %s and attendance_date <= %s and ip="103.53.44.158:4380"{0} """.format(condition2), (args.get("from_date"),args.get("to_date")))
 				frappe.db.sql(""" update `tabEmployee Attendance Table` set check_in_1=NULL, check_out_1=NULL, late_sitting=NULL, night_switch=0 where date >= %s and date <= %s and ip="103.53.44.158:4380"{0} """.format(condition1), (args.get("from_date"),args.get("to_date")))
-				frappe.db.commit()
 				for attend1 in attendance:
 					if getdate(str(attend1).split()[3]) < getdate(args.get("from_date")) or getdate(str(attend1).split()[3]) > getdate(args.get("to_date")):
 						continue

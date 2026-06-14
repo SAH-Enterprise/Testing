@@ -62,4 +62,3 @@ class EarlyCompensationDateWise(Document):
             child.early_compensation = 1
             doc.save()
 
-        frappe.db.commit()

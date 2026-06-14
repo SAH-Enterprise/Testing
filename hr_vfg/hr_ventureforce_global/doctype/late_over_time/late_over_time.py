@@ -208,7 +208,6 @@ class LateOverTime(Document):
 				}
 			)
 
-		frappe.db.commit()
 
 		for parent_name, updates in parent_docs.items():
 			try:
@@ -222,7 +221,6 @@ class LateOverTime(Document):
 						child_row.approved_ot1 = update["approved_ot1"]
 
 				doc.save(ignore_permissions=True)
-				frappe.db.commit()
 
 			except Exception as e:
 				frappe.log_error(
@@ -245,7 +243,6 @@ class LateOverTime(Document):
 				parent_docs[r.att_ref] = []
 			parent_docs[r.att_ref].append({"child_ref": r.att_child_ref})
 
-		frappe.db.commit()
 
 		for parent_name, updates in parent_docs.items():
 			try:
@@ -259,7 +256,6 @@ class LateOverTime(Document):
 						child_row.approved_ot1 = ""
 
 				doc.save(ignore_permissions=True)
-				frappe.db.commit()
 
 			except Exception as e:
 				frappe.log_error(

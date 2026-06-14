@@ -256,7 +256,6 @@ class AttendanceAdjustment(Document):
 				ON c.parent = p.name where c.date=%s and p.month=%s and p.employee=%s """,(self.date,self.month,data.employee_id), as_dict=1)
 				if len(att) > 0:
 					frappe.db.sql(""" update `tabEmployee Attendance Table` set type=%s where date=%s and parent=%s""",(self.type,self.date,att[0]['name']))
-					frappe.db.commit()
 			if data.check_out:
 				if self.type != "Short Leave":
 					doc1 = frappe.new_doc("Attendance Logs")
@@ -271,7 +270,6 @@ class AttendanceAdjustment(Document):
 				ON c.parent = p.name where c.date=%s and p.month=%s and p.employee=%s """,(self.date,self.month,data.employee_id), as_dict=1)
 				if len(att) > 0:
 					frappe.db.sql(""" update `tabEmployee Attendance Table` set type=%s where date=%s and parent=%s""",(self.type,self.date,att[0]['name']))
-					frappe.db.commit()
 	def on_submit(self):
 		pass
 

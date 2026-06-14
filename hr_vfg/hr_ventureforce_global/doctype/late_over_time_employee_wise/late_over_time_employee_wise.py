@@ -53,7 +53,6 @@ class LateOverTimeEmployeeWise(Document):
 			# Update the `approved_ot1` field in `Employee Attendance Table`
 			frappe.db.sql("update `tabEmployee Attendance Table` set approved_ot1=%s where name=%s", 
 						  (r.approved_ot, r.att_child_ref))
-			frappe.db.commit()
 
 			# Reload and update the parent document
 			doc = frappe.get_doc("Employee Attendance", r.att_ref)
@@ -70,7 +69,6 @@ class LateOverTimeEmployeeWise(Document):
 			# Update the `approved_ot1` field in `Employee Attendance Table`
 			frappe.db.sql("update `tabEmployee Attendance Table` set approved_ot1='' where name=%s", 
 						  (r.att_child_ref,))
-			frappe.db.commit()
 
 			doc = frappe.get_doc("Employee Attendance", r.att_ref)
 			child_row = doc.getone({"name": r.att_child_ref})

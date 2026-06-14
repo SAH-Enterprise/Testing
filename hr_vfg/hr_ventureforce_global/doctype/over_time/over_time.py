@@ -84,7 +84,6 @@ class OverTime(Document):
 									xh), minutes=float(xm), seconds=float(xs))
 				frappe.db.sql(""" update `tabEmployee Attendance Table` set approved_ot1=%s where name=%s""",
 							( adot,result[0]["name"]))
-				frappe.db.commit()
 				doc = frappe.get_doc("Employee Attendance",result[0]['empa'])
 				doc.save()
 	
@@ -99,7 +98,6 @@ class OverTime(Document):
 			if len(result) > 0:
 				frappe.db.sql(""" update `tabEmployee Attendance Table` set approved_ot1=%s where name=%s""",
 							(0.0,result[0]["name"]))
-				frappe.db.commit()
 				doc = frappe.get_doc("Employee Attendance",result[0]['empa'])
 				doc.save()
 	

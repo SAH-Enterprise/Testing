@@ -199,7 +199,6 @@ class AttendanceAdjustments(Document):
                 doc.save(ignore_permissions=True)
                 print(f"[Step 3.6] Document saved, committing...")
                 frappe.log_error("Step 3.6: Document saved, committing", f"Attendance Adjustments: {parent_name} - Commit")
-                frappe.db.commit()
                 print(f"✓ SUCCESS: Parent document {parent_name} updated successfully!")
                 frappe.log_error(
                     f"SUCCESS: Parent document {parent_name} updated successfully",

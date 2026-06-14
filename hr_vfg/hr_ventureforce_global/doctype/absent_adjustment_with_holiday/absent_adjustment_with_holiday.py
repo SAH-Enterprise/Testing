@@ -60,7 +60,6 @@ class AbsentAdjustmentWithHoliday(Document):
 				where name = %s
 			""", (s.holiday_adjustment, s.att_child_ref))
             
-            frappe.db.commit()
             doc = frappe.get_doc("Employee Attendance", s.att_ref)
             child_row = doc.getone({"name": s.att_child_ref})
             child_row.holiday_adjustment = s.holiday_adjustment

@@ -42,7 +42,6 @@ class EarlyOvertimeEmployeeWise(Document):
 			frappe.db.sql("""
 			update `tabEmployee Attendance Table` set approved_eot=%s where name=%s
 			""",(r.approved_early_over_time,r.att_child_ref))
-			frappe.db.commit()
 			doc = frappe.get_doc("Employee Attendance",r.att_ref)
 			doc.save()
 
@@ -54,7 +53,6 @@ class EarlyOvertimeEmployeeWise(Document):
                 SET approved_eot = '' 
                 WHERE name = %s
             """, (r.att_child_ref,))
-			frappe.db.commit()
 
             # Reload the Employee Attendance document to reflect the changes
 			doc = frappe.get_doc("Employee Attendance", r.att_ref)

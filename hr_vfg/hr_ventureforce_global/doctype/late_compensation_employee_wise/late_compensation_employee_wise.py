@@ -36,7 +36,6 @@ class LateCompensationEmployeeWise(Document):
 				set late1= %s
 				where name= %s
 			""",(r.late,r.att_child_ref))
-			frappe.db.commit()
 			doc = frappe.get_doc("Employee Attendance",r.att_ref)
 			doc.save()
 
@@ -48,6 +47,5 @@ class LateCompensationEmployeeWise(Document):
 				where name = %s
 				
 			""", (r.att_child_ref))
-			frappe.db.commit()
 			doc = frappe.get_doc("Employee Attendance", r.att_ref)
 			doc.save()

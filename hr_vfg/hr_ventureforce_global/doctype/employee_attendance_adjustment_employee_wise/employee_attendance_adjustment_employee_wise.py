@@ -77,7 +77,6 @@ class EmployeeAttendanceAdjustmentEmployeeWise(Document):
 			# Update the `approved_ot1` field in `Employee Attendance Table`
 			frappe.db.sql("update `tabEmployee Attendance Table` set check_in_1=%s , check_out_1=%s where name=%s", 
 						  (r.check_in, r.check_out, r.att_child_ref))
-			frappe.db.commit()
 
 			# Reload and update the parent document
 			doc = frappe.get_doc("Employee Attendance", r.att_ref)
@@ -100,7 +99,6 @@ class EmployeeAttendanceAdjustmentEmployeeWise(Document):
 
 			# Reload to verify update
 			# doc.reload()
-			frappe.db.commit()
 			# frappe.log_error(f"Updated approved_ot1: {child_row.approved_ot1}")
 
 
@@ -110,7 +108,6 @@ class EmployeeAttendanceAdjustmentEmployeeWise(Document):
 			
 			frappe.db.sql("update `tabEmployee Attendance Table` set check_in_1='', check_out_1='' where name=%s", 
 						  (r.att_child_ref,))
-			frappe.db.commit()
 
 			doc = frappe.get_doc("Employee Attendance", r.att_ref)
 			child_row = doc.getone({"name": r.att_child_ref})
@@ -135,7 +132,6 @@ class EmployeeAttendanceAdjustmentEmployeeWise(Document):
 			# Update the `approved_ot1` field in `Employee Attendance Table`
 			frappe.db.sql("update `tabEmployee Attendance Table` set check_in_1=%s , check_out_1=%s where name=%s", 
 						  (r.check_in, r.check_out, r.att_child_ref))
-			frappe.db.commit()
 
 			# Reload and update the parent document
 			doc = frappe.get_doc("Employee Attendance", r.att_ref)
@@ -158,7 +154,6 @@ class EmployeeAttendanceAdjustmentEmployeeWise(Document):
 
 			# Reload to verify update
 			# doc.reload()
-			frappe.db.commit()
 			# frappe.log_error(f"Updated approved_ot1: {child_row.approved_ot1}")
 
 
@@ -168,7 +163,6 @@ class EmployeeAttendanceAdjustmentEmployeeWise(Document):
 			
 			frappe.db.sql("update `tabEmployee Attendance Table` set check_in_1='', check_out_1='' where name=%s", 
 						  (r.att_child_ref,))
-			frappe.db.commit()
 
 			doc = frappe.get_doc("Employee Attendance", r.att_ref)
 			child_row = doc.getone({"name": r.att_child_ref})

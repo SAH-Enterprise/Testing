@@ -86,7 +86,6 @@ class EmployeeAdvanceBulk(Document):
                 "employee_advance": adv.name
             }, update_modified=False)
 
-        frappe.db.commit()
         frappe.msgprint("Employee Advances created successfully. Use 'Create Disbursed Payment' button to create payment entries.")
 
     @frappe.whitelist()
@@ -273,7 +272,6 @@ class EmployeeAdvanceBulk(Document):
 
                 payment_entries_created += 1
 
-        frappe.db.commit()
         
         if payment_entries_created > 0:
             frappe.msgprint(f"Successfully created {payment_entries_created} payment entries for disbursement.")
