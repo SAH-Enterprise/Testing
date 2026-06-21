@@ -1,0 +1,108 @@
+{
+ "actions": [],
+ "creation": "2026-06-19 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_defaults",
+  "max_short_leaves_per_month",
+  "max_hours_per_short_leave",
+  "punch_grace_minutes_before",
+  "punch_grace_minutes_after",
+  "column_break_def",
+  "allow_on_half_day",
+  "allow_on_late",
+  "section_approvers",
+  "short_leave_approvers"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_defaults",
+   "fieldtype": "Section Break",
+   "label": "Defaults"
+  },
+  {
+   "default": "2",
+   "fieldname": "max_short_leaves_per_month",
+   "fieldtype": "Int",
+   "label": "Max Short Leaves Per Month"
+  },
+  {
+   "default": "2",
+   "description": "Maximum hours allowed per short leave request",
+   "fieldname": "max_hours_per_short_leave",
+   "fieldtype": "Float",
+   "label": "Max Hours Per Short Leave"
+  },
+  {
+   "default": "15",
+   "description": "Minutes before approved going time to search Check Out punch",
+   "fieldname": "punch_grace_minutes_before",
+   "fieldtype": "Int",
+   "label": "Punch Grace Minutes (Before Going)"
+  },
+  {
+   "default": "60",
+   "description": "Minutes after approved return time to search Check In punch",
+   "fieldname": "punch_grace_minutes_after",
+   "fieldtype": "Int",
+   "label": "Punch Grace Minutes (After Return)"
+  },
+  {
+   "fieldname": "column_break_def",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_on_half_day",
+   "fieldtype": "Check",
+   "label": "Allow on Half Day"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_on_late",
+   "fieldtype": "Check",
+   "label": "Allow on Late Mark"
+  },
+  {
+   "fieldname": "section_approvers",
+   "fieldtype": "Section Break",
+   "label": "Approvers"
+  },
+  {
+   "fieldname": "short_leave_approvers",
+   "fieldtype": "Table",
+   "label": "Short Leave Approvers",
+   "options": "Short Leave Approver"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-06-19 00:00:00.000000",
+ "module": "HR VentureForce Global",
+ "name": "Short Leave Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "HR Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

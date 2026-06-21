@@ -70,6 +70,7 @@ doctype_js = {
 
 # before_install = "hr_vfg.install.before_install"
 # after_install = "hr_vfg.install.after_install"
+after_migrate = "hr_vfg.hr_ventureforce_global.doctype.short_leave_settings.short_leave_settings.ensure_default_approvers"
 
 # Uninstallation
 # ------------
@@ -124,6 +125,10 @@ doc_events = {
 	"Late Over Time Employee Wise": {
 		"validate": "hr_vfg.hr_ventureforce_global.payroll_cutoff.enforce_payroll_cutoff",
 	},
+	"Attendance Logs": {
+		"after_insert": "hr_vfg.hr_ventureforce_global.doctype.short_leave.short_leave.on_attendance_log_update",
+		"on_update": "hr_vfg.hr_ventureforce_global.doctype.short_leave.short_leave.on_attendance_log_update",
+	},
 }
 
 # Scheduled Tasks
@@ -133,7 +138,10 @@ scheduler_events = {
     "cron": {
 	"0 */5 * * *": [
 			"hr_vfg.hr_ventureforce_global.doctype.employee_attendance.attendance_connector.get_attendance_from_hook"
-		]
+		],
+	"15 * * * *": [
+			"hr_vfg.hr_ventureforce_global.doctype.short_leave.short_leave.sync_all_pending_short_leaves"
+		],
 	}
 }
 

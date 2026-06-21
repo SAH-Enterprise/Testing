@@ -1,0 +1,342 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:SL-{YY}-{MM}-{####}",
+ "creation": "2026-06-19 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "employee",
+  "employee_name",
+  "column_break_emp",
+  "company",
+  "department",
+  "designation",
+  "section_leave",
+  "posting_date",
+  "leave_date",
+  "column_break_dates",
+  "going_time",
+  "return_time",
+  "hours",
+  "section_actual_punch",
+  "actual_going_time",
+  "actual_return_time",
+  "column_break_actual",
+  "actual_hours",
+  "time_variance_hours",
+  "exceeded_approved_time",
+  "attendance_sync_status",
+  "section_actual_logs",
+  "actual_going_log",
+  "actual_return_log",
+  "section_approval",
+  "approver_label",
+  "approver",
+  "column_break_appr",
+  "approval_status",
+  "approved_by",
+  "approval_date",
+  "section_reason",
+  "reason",
+  "rejection_remarks",
+  "section_amend",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Employee",
+   "options": "Employee",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_emp",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "employee.company",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "employee.department",
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "employee.designation",
+   "fieldname": "designation",
+   "fieldtype": "Link",
+   "label": "Designation",
+   "options": "Designation",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_leave",
+   "fieldtype": "Section Break",
+   "label": "Short Leave Details"
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "leave_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Leave Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_dates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "going_time",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "label": "Approved Going Time",
+   "reqd": 1
+  },
+  {
+   "fieldname": "return_time",
+   "fieldtype": "Time",
+   "label": "Approved Return Time"
+  },
+  {
+   "fieldname": "hours",
+   "fieldtype": "Float",
+   "label": "Approved Hours",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.approval_status=='Approved'",
+   "fieldname": "section_actual_punch",
+   "fieldtype": "Section Break",
+   "label": "Actual Punch Record"
+  },
+  {
+   "fieldname": "actual_going_time",
+   "fieldtype": "Time",
+   "label": "Actual Going Time (Punch Out)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "actual_return_time",
+   "fieldtype": "Time",
+   "label": "Actual Return Time (Punch In)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_actual",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "actual_hours",
+   "fieldtype": "Float",
+   "label": "Actual Hours",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "description": "Actual hours minus approved hours. Positive means exceeded approved time.",
+   "fieldname": "time_variance_hours",
+   "fieldtype": "Float",
+   "label": "Time Variance (Hours)",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "exceeded_approved_time",
+   "fieldtype": "Check",
+   "label": "Exceeded Approved Time",
+   "read_only": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "attendance_sync_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Attendance Sync Status",
+   "options": "Pending\nPartial\nSynced\nNot Found",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.approval_status=='Approved'",
+   "fieldname": "section_actual_logs",
+   "fieldtype": "Section Break",
+   "label": "Linked Attendance Logs"
+  },
+  {
+   "fieldname": "actual_going_log",
+   "fieldtype": "Link",
+   "label": "Going Punch Log",
+   "options": "Attendance Logs",
+   "read_only": 1
+  },
+  {
+   "fieldname": "actual_return_log",
+   "fieldtype": "Link",
+   "label": "Return Punch Log",
+   "options": "Attendance Logs",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_approval",
+   "fieldtype": "Section Break",
+   "label": "Approval"
+  },
+  {
+   "fieldname": "approver_label",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Approval From",
+   "options": "Umer\nTahir\nRahil Bhai\nFaisal Bhai",
+   "reqd": 1
+  },
+  {
+   "fieldname": "approver",
+   "fieldtype": "Link",
+   "label": "Approver User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_appr",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "Draft",
+   "fieldname": "approval_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Approval Status",
+   "options": "Draft\nPending Approval\nApproved\nRejected",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "approval_date",
+   "fieldtype": "Datetime",
+   "label": "Approval Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_reason",
+   "fieldtype": "Section Break",
+   "label": "Reason"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.approval_status=='Rejected'",
+   "fieldname": "rejection_remarks",
+   "fieldtype": "Small Text",
+   "label": "Rejection Remarks",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_amend",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Short Leave",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-06-21 15:30:55.335157",
+ "modified_by": "Administrator",
+ "module": "HR VentureForce Global",
+ "name": "Short Leave",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "HR Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
