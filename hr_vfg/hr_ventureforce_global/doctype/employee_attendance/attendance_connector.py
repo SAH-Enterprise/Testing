@@ -16,6 +16,15 @@ from datetime import datetime
 from datetime import timedelta
 
 
+def _log_attendance_sync_error(context, exc, ip=None, port=None):
+	"""Log machine sync failures with a short title (Error Log method max 140 chars)."""
+	device = f"{ip}:{port}" if ip else "unknown"
+	frappe.log_error(
+		title=f"Attendance Sync: {context}"[:140],
+		message=f"Device: {device}\nError: {exc}\n\n{frappe.get_traceback()}",
+	)
+
+
 @frappe.whitelist()
 def get_attendance_long(**args):
 	if not args:
@@ -150,8 +159,7 @@ def get_checkins(args=None, ip=None, port=None,password=0):
 							frappe.log_error(frappe.get_traceback(),"Attendance hook test")
 				
 	except Exception as e:
-		print ("Process terminate : {}"+frappe.get_traceback())
-		frappe.log_error(frappe.get_traceback(),"Attendance hook test")
+		_log_attendance_sync_error("Check In", e, ip, port)
 	finally:
 		if conn:
 			conn.disconnect()
@@ -163,7 +171,7 @@ def check_time(attend1):
 	employee = frappe.db.get_value("Employee",{"biometric_id":t_biometric},"name")
 	shift_ass = frappe.get_all("Shift Assignment", filters={'employee': employee,
 													'start_date': ["<=", getdate(t_date)],'end_date': [">=", getdate(t_date)]}, fields=["*"])
-	if len(shift_ass) > 0:
+	if len(shift_ass) > 0:12
 		shift = shift_ass[0].shift_type
 	else:
 		shift_ass = frappe.get_all("Shift Assignment", filters={'employee': employee,
@@ -342,10 +350,7 @@ def get_checkouts(args=None,ip=None, port=None,password=0):
 				
 				
 	except Exception as e:
-		frappe.log_error(
-			message=f"Process terminate: {str(e)}\n\n{frappe.get_traceback()}",
-			title="Attendance Checkout Sync Error",
-		)
+		_log_attendance_sync_error("Check Out", e, ip, port)
 	finally:
 		if conn:
 			conn.disconnect()
@@ -539,10 +544,7 @@ def get_checkins_checkouts(args=None,ip=None, port=None,password=0):
 				
 				
 	except Exception as e:
-		frappe.log_error(
-			message=f"Process terminate: {str(e)}\n\n{frappe.get_traceback()}",
-			title="Attendance In/Out Sync Error",
-		)
+		_log_attendance_sync_error("Check In/Out", e, ip, port)
 	finally:
 		if conn:
 			conn.disconnect()
