@@ -202,8 +202,30 @@ class ServiceBilling(Document):
 		)
 
 	def _finalize_purchase_invoice(self, pi, supplier):
+		# Keep related PI under the Service Billing owner (creator),
+		# even when another user (e.g. Administrator) submits the billing.
+		source_owner = self.owner or frappe.session.user
+		pi.owner = source_owner
 		pi.insert(ignore_permissions=True)
+		if pi.owner != source_owner:
+			frappe.db.set_value(
+				"Purchase Invoice", pi.name, "owner", source_owner, update_modified=False
+			)
+			pi.owner = source_owner
+
 		pi.submit()
+
+		if source_owner and source_owner not in ("Administrator", "Guest"):
+			frappe.share.add_docshare(
+				"Purchase Invoice",
+				pi.name,
+				source_owner,
+				read=1,
+				write=1,
+				submit=0,
+				share=0,
+				flags={"ignore_share_permission": True},
+			)
 
 		self.db_set("purchase_invoice", pi.name)
 		self.db_set("supplier", supplier)

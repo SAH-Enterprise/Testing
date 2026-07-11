@@ -22,7 +22,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Transaction",
-   "link_count": 1,
+   "link_count": 2,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -48,7 +48,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-03-16 00:28:15.375729",
+ "modified": "2026-07-11 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "HR VentureForce Global",
  "name": "Meal",
