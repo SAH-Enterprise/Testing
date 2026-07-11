@@ -168,25 +168,40 @@ def check_time(attend1):
 	t_biometric = str(attend1).split()[1]
 	flg = False
 	t_date = str(attend1).split()[3]
-	employee = frappe.db.get_value("Employee",{"biometric_id":t_biometric},"name")
-	shift_ass = frappe.get_all("Shift Assignment", filters={'employee': employee,
-													'start_date': ["<=", getdate(t_date)],'end_date': [">=", getdate(t_date)]}, fields=["*"])
-	if len(shift_ass) > 0:12
+	employee = frappe.db.get_value("Employee", {"biometric_id": t_biometric}, "name")
+	shift_ass = frappe.get_all(
+		"Shift Assignment",
+		filters={
+			"employee": employee,
+			"start_date": ["<=", getdate(t_date)],
+			"end_date": [">=", getdate(t_date)],
+		},
+		fields=["*"],
+	)
+	if len(shift_ass) > 0:
 		shift = shift_ass[0].shift_type
 	else:
-		shift_ass = frappe.get_all("Shift Assignment", filters={'employee': employee,
-															'start_date': ["<=", getdate(t_date)]}, fields=["*"])
+		shift_ass = frappe.get_all(
+			"Shift Assignment",
+			filters={"employee": employee, "start_date": ["<=", getdate(t_date)]},
+			fields=["*"],
+		)
 	if len(shift_ass) > 0:
-			shift = shift_ass[0].shift_type
-			shift_doc = frappe.get_doc("Shift Type", shift)
-			s_type = shift_doc.shift_type
-			t_check_out = str(attend1).split()[4]
-			t_check_out_f_f = timedelta(hours=int(t_check_out.split(":")[0]),minutes=int(t_check_out.split(":")[1]))
-			shift_start_t = timedelta(hours=int(str(shift_doc.start_time).split(":")[0]),minutes=int(str(shift_doc.start_time).split(":")[1]))
-			if t_check_out_f_f < shift_start_t:
-				prev_date = add_days(getdate(t_date),-1)
-				return True, prev_date
-			return True, False
+		shift = shift_ass[0].shift_type
+		shift_doc = frappe.get_doc("Shift Type", shift)
+		s_type = shift_doc.shift_type
+		t_check_out = str(attend1).split()[4]
+		t_check_out_f_f = timedelta(
+			hours=int(t_check_out.split(":")[0]), minutes=int(t_check_out.split(":")[1])
+		)
+		shift_start_t = timedelta(
+			hours=int(str(shift_doc.start_time).split(":")[0]),
+			minutes=int(str(shift_doc.start_time).split(":")[1]),
+		)
+		if t_check_out_f_f < shift_start_t:
+			prev_date = add_days(getdate(t_date), -1)
+			return True, prev_date
+		return True, False
 
 	return False, False
 def get_checkouts(args=None,ip=None, port=None,password=0):
