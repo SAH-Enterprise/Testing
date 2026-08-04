@@ -122,7 +122,8 @@ def check_employee_advances_for_salary_deduction(employee, start_date, end_date)
     missing_additional_salaries = []
     
     for advance in advances:
-        unclaimed_amount = advance.paid_amount - advance.claimed_amount - advance.return_amount
+        unclaimed_amount = min(flt(advance.paid_amount), flt(advance.advance_amount) or flt(advance.paid_amount))
+        unclaimed_amount = unclaimed_amount - flt(advance.claimed_amount) - flt(advance.return_amount)
         
         if unclaimed_amount > 0:
             # Check if there's an additional salary for this advance in the current payroll period
@@ -233,7 +234,10 @@ def create_salary_slips(self):
 					"end_date": self.end_date,
 					"company": self.company,
 					"posting_date": self.posting_date,
-					"deduct_tax_for_unclaimed_employee_benefits": self.deduct_tax_for_unclaimed_employee_benefits,
+					# Field removed in HRMS v16 — keep via getattr for older sites
+					"deduct_tax_for_unclaimed_employee_benefits": getattr(
+						self, "deduct_tax_for_unclaimed_employee_benefits", 0
+					),
 					"deduct_tax_for_unsubmitted_tax_exemption_proof": self.deduct_tax_for_unsubmitted_tax_exemption_proof,
 					"payroll_entry": self.name,
 					"exchange_rate": self.exchange_rate,

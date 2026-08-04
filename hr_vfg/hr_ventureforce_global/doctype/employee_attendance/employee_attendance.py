@@ -544,28 +544,49 @@ class EmployeeAttendance(Document):
 
 
         if self.table1:
-            first_date = self.table1[0].date  
-            last_date = self.table1[-1].date 
-             
+            first_date = self.table1[0].date
+            last_date = self.table1[-1].date
 
-            # Fetch fuel rate
-            fuel = frappe.get_list("Fuel Rate", filters={
-                "from_date": [">=", first_date],
-                "to_date": ["<=", last_date]
-            }, fields=['*'])
+            # Fuel Rate whose period covers the attendance month
+            # (from_date <= first day AND to_date >= last day).
+            # Old filter (from_date >= first AND to_date <= last) missed valid rates
+            # when attendance started mid-month or rate was posted late.
+            fuel = frappe.get_all(
+                "Fuel Rate",
+                filters={
+                    "docstatus": 1,
+                    "from_date": ["<=", first_date],
+                    "to_date": [">=", last_date],
+                },
+                fields=["name", "rate_per_litre", "from_date", "to_date"],
+                order_by="from_date desc",
+                limit=1,
+            )
+            if not fuel:
+                # Fallback: any overlapping submitted rate for the month
+                fuel = frappe.get_all(
+                    "Fuel Rate",
+                    filters={
+                        "docstatus": 1,
+                        "from_date": ["<=", last_date],
+                        "to_date": [">=", first_date],
+                    },
+                    fields=["name", "rate_per_litre", "from_date", "to_date"],
+                    order_by="from_date desc",
+                    limit=1,
+                )
 
-            if fuel and fuel[0]:
-                fuel_allowed = fuel[0].rate_per_litre  
+            if fuel:
+                fuel_allowed = flt(fuel[0].rate_per_litre)
                 self.fuel_allowance_rate = fuel_allowed
-                if self.fuel_allowance_rate and self.fuel_allowance_limit:
-                    self.fuel_allowance_total = self.fuel_allowance_rate * self.fuel_allowance_limit
+                if fuel_allowed and flt(self.fuel_allowance_limit):
+                    self.fuel_allowance_total = fuel_allowed * flt(self.fuel_allowance_limit)
                 else:
                     self.fuel_allowance_total = 0
             else:
-                self.fuel_allowance_rate = "0" 
-            
+                self.fuel_allowance_rate = 0
+                self.fuel_allowance_total = 0
 
-        
 
         for data in self.table1:
             first_in_time = timedelta(hours=1,minutes=0,seconds=0)

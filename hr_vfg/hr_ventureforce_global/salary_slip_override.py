@@ -44,18 +44,7 @@ from hrms.hr.utils import get_holiday_dates_for_employee, validate_active_employ
 # 	create_repayment_entry,
 # )
 from hrms.payroll.doctype.additional_salary.additional_salary import get_additional_salaries
-from hrms.payroll.doctype.employee_benefit_application.employee_benefit_application import (
-	get_benefit_component_amount,
-)
-from hrms.payroll.doctype.employee_benefit_claim.employee_benefit_claim import (
-	get_benefit_claim_amount,
-	get_last_payroll_period_benefits,
-)
 from hrms.payroll.doctype.payroll_entry.payroll_entry import get_start_end_dates
-from hrms.payroll.doctype.payroll_period.payroll_period import (
-	get_payroll_period,
-	get_period_factor,
-)
 from erpnext.utilities.transaction_base import TransactionBase
 from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip
 
@@ -96,7 +85,7 @@ class CustomSalarySlip(SalarySlip):
                 # Only include advances that were posted within the salary slip period
                 "posting_date": ["between", [self.start_date, self.end_date]]
             },
-            fields=["name", "paid_amount", "claimed_amount", "return_amount", "advance_account", "posting_date"],
+            fields=["name", "paid_amount", "claimed_amount", "return_amount", "advance_amount", "advance_account", "posting_date"],
         )
         
         # Dynamically get the deduction component
@@ -117,7 +106,9 @@ class CustomSalarySlip(SalarySlip):
 
         # Add fresh advance deductions
         for adv in advances:
-            unclaimed = (adv.paid_amount or 0) - (adv.claimed_amount or 0) - (adv.return_amount or 0)
+            # Cap at advance_amount so a wrongly doubled paid_amount cannot over-deduct
+            paid = min(flt(adv.paid_amount), flt(adv.advance_amount) or flt(adv.paid_amount))
+            unclaimed = paid - flt(adv.claimed_amount) - flt(adv.return_amount)
             if unclaimed > 0:
                 # Check if there's already an Additional Salary for this advance in this payroll period
                 additional_salary_exists = frappe.get_all(
@@ -142,10 +133,31 @@ class CustomSalarySlip(SalarySlip):
                         "ref_docname": adv.name,
                     })
 
+    def set_employee_grade(self):
+        """Copy Employee Grade from Employee.custom_employee_grade onto the slip.
+
+        Standard Employee.grade is hidden/unused here; the live grade is
+        custom_employee_grade. Without this, list filters on Grade never match.
+        """
+        if not self.employee or not self.meta.has_field("custom_grade"):
+            return
+        emp_grade = frappe.db.get_value(
+            "Employee", self.employee, "custom_employee_grade"
+        )
+        if emp_grade and self.custom_grade != emp_grade:
+            self.custom_grade = emp_grade
+        elif not emp_grade and self.custom_grade:
+            # Keep existing value if employee grade was cleared after slip creation
+            pass
+
     def validate(self):
+        self.set_employee_grade()
         super().validate()
         self.add_employee_advance_deductions()
-	
+        # Advances are appended after structure calc — refresh totals
+        self.set_precision_for_component_amounts()
+        self.set_net_pay()
+
 	# def get_taxable_earnings_for_prev_period(self, payroll_period,start_date, end_date, allow_tax_exemption=False):
 	# 	payroll_period = get_payroll_period(self.start_date, self.end_date, self.company)
 	# 	prev = frappe.db.sql("""select previous_salary_earned from `tabPrevious Salary Detail` where employee=%s and payroll_period=%s""",

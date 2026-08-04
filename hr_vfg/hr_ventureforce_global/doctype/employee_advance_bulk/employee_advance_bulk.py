@@ -251,19 +251,10 @@ class EmployeeAdvanceBulk(Document):
                 pe.insert()
                 pe.submit()
 
-                # tell the Advance to recalc its paid_amount & status
+                # Payment Entry submit already updates Employee Advance paid_amount via
+                # set_total_advance_paid(). Do NOT add allocated_amount again — that doubles it.
                 adv.reload()
                 adv.set_total_advance_paid()
-                adv.save()
-                
-                # Force update the Employee Advance status
-                self.update_employee_advance_status(adv.name, allocated_amount)
-                
-                # Also trigger ERPNext's standard payment allocation
-                pe.reload()
-                pe.set_total_allocated_amount()
-                pe.set_unallocated_amount()
-                pe.save()
 
                 # save the payment entry link back on your bulk row
                 frappe.db.set_value(row.doctype, row.name, {
@@ -283,41 +274,16 @@ class EmployeeAdvanceBulk(Document):
             "message": f"Successfully created {payment_entries_created} payment entries for disbursement."
         }
 
-    def update_employee_advance_status(self, advance_name, paid_amount):
-        """Update Employee Advance status after Payment Entry submission"""
+    def update_employee_advance_status(self, advance_name, paid_amount=None):
+        """Recalculate paid_amount/status from Payment Entries (no manual add)."""
         try:
-            # Get the Employee Advance document
             adv = frappe.get_doc("Employee Advance", advance_name)
-            
-            print(f"DEBUG: Before update - Employee Advance {advance_name}")
-            print(f"DEBUG: Current paid_amount: {adv.paid_amount}")
-            print(f"DEBUG: Advance amount: {adv.advance_amount}")
-            print(f"DEBUG: Current status: {adv.status}")
-            print(f"DEBUG: Adding paid_amount: {paid_amount}")
-            
-            # Update the paid amount
-            current_paid = adv.paid_amount or 0
-            new_paid = current_paid + paid_amount
-            adv.paid_amount = new_paid
-            
-            # Update status based on paid amount
-            if new_paid >= adv.advance_amount:
-                adv.status = "Paid"
-            elif new_paid > 0:
-                adv.status = "Partially Paid"
-            else:
-                adv.status = "Unpaid"
-            
-            print(f"DEBUG: After update - New paid_amount: {new_paid}, New status: {adv.status}")
-            
-            # Save the changes
-            adv.save(ignore_permissions=True)
-            
-            print(f"DEBUG: Updated Employee Advance {advance_name} - Paid Amount: {new_paid}, Status: {adv.status}")
-            
+            adv.set_total_advance_paid()
         except Exception as e:
-            frappe.log_error(f"Error updating Employee Advance status: {str(e)}", "Employee Advance Status Update Error")
-            print(f"ERROR: Failed to update Employee Advance {advance_name}: {str(e)}")
+            frappe.log_error(
+                f"Error updating Employee Advance status: {str(e)}",
+                "Employee Advance Status Update Error",
+            )
 
     
 

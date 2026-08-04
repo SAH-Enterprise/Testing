@@ -126,5 +126,35 @@ frappe.ui.form.on("Payroll Entry", {
                 });
             }, __('Create'));
         }
+
+        if (frm.doc.docstatus === 1 && frm.doc.salary_slips_submitted) {
+            frm.call('get_accrual_jv_status').then((r) => {
+                const status = r.message || {};
+                if (status.needs_accrual_jv) {
+                    frm.set_intro(
+                        __('Accrual Journal Entry is missing or cancelled. Use Actions > Make Accrual Journal Entry before Make Bank Entry.'),
+                        'orange'
+                    );
+                    frm.add_custom_button(__('Make Accrual Journal Entry'), () => {
+                        frappe.confirm(
+                            __('Create accrual Journal Entry for submitted salary slips?'),
+                            () => {
+                                frm.call({
+                                    doc: frm.doc,
+                                    method: 'make_accrual_journal_entry',
+                                    freeze: true,
+                                    freeze_message: __('Creating accrual Journal Entry...'),
+                                    callback: () => frm.reload_doc(),
+                                });
+                            }
+                        );
+                    }, __('Actions'));
+                } else if (status.active_journal_entries?.length) {
+                    frm.add_custom_button(__('View Accrual Journal Entry'), () => {
+                        frappe.set_route('Form', 'Journal Entry', status.active_journal_entries[0]);
+                    }, __('Actions'));
+                }
+            });
+        }
     }
 });
