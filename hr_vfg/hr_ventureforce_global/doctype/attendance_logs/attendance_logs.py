@@ -16,6 +16,10 @@ import time
 
 class AttendanceLogs(TransactionBase):
 	def validate(self):
+		# Live machine sync can insert punches into Attendance Logs without
+		# rewriting Employee Attendance on every punch (handled by the full sync).
+		if self.flags.get("skip_employee_attendance"):
+			return
 		self.get_employee_attendance()
 
 	def get_employee_attendance(self,force_update=False):

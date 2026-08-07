@@ -1,11 +1,14 @@
 import frappe
 from frappe import _
+from frappe.utils import flt
 from hrms.payroll.doctype.payroll_entry.payroll_entry import PayrollEntry
 from hr_vfg.hr_ventureforce_global.custom_events import create_salary_slips_for_employees
 from hr_vfg.hr_ventureforce_global.payroll_accounting_fix import (
 	clear_invalid_salary_slip_journal_links,
 	validate_accrual_journal_entry,
 )
+
+PARTY_REQUIRED_ACCOUNT_TYPES = ("Receivable", "Payable")
 
 
 class CustomPayrollEntry(PayrollEntry):
@@ -65,6 +68,120 @@ class CustomPayrollEntry(PayrollEntry):
 			"cancelled_journal_entries": cancelled,
 			"needs_accrual_jv": not active,
 		}
+
+	def _account_requires_party(self, account: str) -> bool:
+		account_type = frappe.get_cached_value("Account", account, "account_type")
+		return account_type in PARTY_REQUIRED_ACCOUNT_TYPES
+
+	def _get_employee_amounts_for_party_account(self, account: str, component_type: str):
+		"""Split Receivable/Payable component amounts by employee + cost center."""
+		salary_components = self.get_salary_components(component_type) or []
+		totals = {}
+
+		for item in salary_components:
+			component_account = self.get_salary_component_account(item.salary_component)
+			if component_account != account:
+				continue
+
+			# Skip rows already handled as linked Employee Advance deductions
+			if component_type == "deductions" and self.get_advance_deduction(component_type, item):
+				continue
+
+			employee_cost_centers = self.get_payroll_cost_centers_for_employee(
+				item.employee, item.salary_structure
+			)
+			for cost_center, percentage in employee_cost_centers.items():
+				amount = flt(item.amount) * percentage / 100
+				if not amount:
+					continue
+				key = (item.employee, cost_center or self.cost_center)
+				totals[key] = totals.get(key, 0) + amount
+
+		return totals
+
+	def get_payable_amount_for_earnings_and_deductions(
+		self,
+		accounts,
+		earnings,
+		deductions,
+		currencies,
+		company_currency,
+		accounting_dimensions,
+		precision,
+		payable_amount,
+		employee_wise_accounting_enabled,
+	):
+		"""Post party-required component accounts employee-wise.
+
+		Standard HRMS aggregates component accounts. That breaks when a deduction
+		like Employee Advances - SAH uses a Receivable account without Additional
+		Salary → Employee Advance linkage (no party on the JV row).
+		"""
+		for acc_cc, amount in earnings.items():
+			account, cost_center = acc_cc[0], acc_cc[1] or self.cost_center
+			if self._account_requires_party(account):
+				employee_amounts = self._get_employee_amounts_for_party_account(account, "earnings")
+				for (employee, emp_cc), emp_amount in employee_amounts.items():
+					payable_amount = self.get_accounting_entries_and_payable_amount(
+						account,
+						emp_cc or cost_center,
+						emp_amount,
+						currencies,
+						company_currency,
+						payable_amount,
+						accounting_dimensions,
+						precision,
+						entry_type="debit",
+						party=employee,
+						accounts=accounts,
+					)
+			else:
+				payable_amount = self.get_accounting_entries_and_payable_amount(
+					account,
+					cost_center,
+					amount,
+					currencies,
+					company_currency,
+					payable_amount,
+					accounting_dimensions,
+					precision,
+					entry_type="debit",
+					accounts=accounts,
+				)
+
+		for acc_cc, amount in deductions.items():
+			account, cost_center = acc_cc[0], acc_cc[1] or self.cost_center
+			if self._account_requires_party(account):
+				employee_amounts = self._get_employee_amounts_for_party_account(account, "deductions")
+				for (employee, emp_cc), emp_amount in employee_amounts.items():
+					payable_amount = self.get_accounting_entries_and_payable_amount(
+						account,
+						emp_cc or cost_center,
+						emp_amount,
+						currencies,
+						company_currency,
+						payable_amount,
+						accounting_dimensions,
+						precision,
+						entry_type="credit",
+						party=employee,
+						accounts=accounts,
+					)
+			else:
+				payable_amount = self.get_accounting_entries_and_payable_amount(
+					account,
+					cost_center,
+					amount,
+					currencies,
+					company_currency,
+					payable_amount,
+					accounting_dimensions,
+					precision,
+					entry_type="credit",
+					accounts=accounts,
+				)
+
+		return payable_amount
 
 	def make_accrual_jv_entry(self, submitted_salary_slips):
 		super().make_accrual_jv_entry(submitted_salary_slips)

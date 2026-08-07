@@ -105,6 +105,9 @@ def check_employee_advances_for_salary_deduction(employee, start_date, end_date)
     """
     Check if there are any employee advances that should be deducted from salary
     but are missing additional salary records.
+
+    Includes prior-month outstanding advances (posting_date <= end_date), not only
+    advances posted inside the current payroll month.
     """
     advances = frappe.get_all(
         "Employee Advance",
@@ -113,18 +116,18 @@ def check_employee_advances_for_salary_deduction(employee, start_date, end_date)
             "repay_unclaimed_amount_from_salary": 1,
             "docstatus": 1,
             "status": ["in", ["Paid", "Unpaid"]],
-            # Only include advances that were posted within the salary slip period
-            "posting_date": ["between", [start_date, end_date]]
+            "posting_date": ["<=", end_date],
         },
-        fields=["name", "advance_amount", "paid_amount", "claimed_amount", "return_amount", "posting_date"]
+        fields=["name", "advance_amount", "paid_amount", "claimed_amount", "return_amount", "posting_date"],
+        order_by="posting_date asc",
     )
-    
+
     missing_additional_salaries = []
-    
+
     for advance in advances:
         unclaimed_amount = min(flt(advance.paid_amount), flt(advance.advance_amount) or flt(advance.paid_amount))
         unclaimed_amount = unclaimed_amount - flt(advance.claimed_amount) - flt(advance.return_amount)
-        
+
         if unclaimed_amount > 0:
             # Check if there's an additional salary for this advance in the current payroll period
             additional_salary = frappe.get_all(
@@ -134,18 +137,18 @@ def check_employee_advances_for_salary_deduction(employee, start_date, end_date)
                     "ref_doctype": "Employee Advance",
                     "ref_docname": advance.name,
                     "docstatus": 1,
-                    "payroll_date": ["between", [start_date, end_date]]
+                    "payroll_date": ["between", [start_date, end_date]],
                 },
-                fields=["name", "amount"]
+                fields=["name", "amount"],
             )
-            
+
             if not additional_salary:
                 missing_additional_salaries.append({
                     "advance_name": advance.name,
                     "unclaimed_amount": unclaimed_amount,
-                    "posting_date": advance.posting_date
+                    "posting_date": advance.posting_date,
                 })
-    
+
     return missing_additional_salaries
 
 

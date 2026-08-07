@@ -127,7 +127,10 @@ doc_events = {
 		"validate": "hr_vfg.hr_ventureforce_global.payroll_cutoff.enforce_payroll_cutoff",
 	},
 	"Attendance Logs": {
-		"after_insert": "hr_vfg.hr_ventureforce_global.doctype.short_leave.short_leave.on_attendance_log_update",
+		"after_insert": [
+			"hr_vfg.hr_ventureforce_global.doctype.short_leave.short_leave.on_attendance_log_update",
+			"hr_vfg.hr_ventureforce_global.punch_portal.on_attendance_log_insert",
+		],
 		"on_update": "hr_vfg.hr_ventureforce_global.doctype.short_leave.short_leave.on_attendance_log_update",
 	},
 }
@@ -137,6 +140,11 @@ doc_events = {
 
 scheduler_events = {
     "cron": {
+	# Near real-time Attendance Logs pull (non-blocking; do not use long-queue daemon)
+	"*/2 * * * *": [
+			"hr_vfg.hr_ventureforce_global.doctype.employee_attendance.attendance_connector.sync_attendance_logs_live"
+		],
+	# Full rebuild into Employee Attendance (check-in/out) every 5 hours
 	"0 */5 * * *": [
 			"hr_vfg.hr_ventureforce_global.doctype.employee_attendance.attendance_connector.get_attendance_from_hook"
 		],

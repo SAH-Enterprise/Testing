@@ -7,7 +7,18 @@ import sys
 import time
 from zk import ZK, const
 from datetime import datetime, timedelta
-from frappe.utils import date_diff, add_months, get_datetime, today, getdate, add_days, flt, get_last_day
+from frappe.utils import (
+	date_diff,
+	add_months,
+	get_datetime,
+	today,
+	getdate,
+	add_days,
+	flt,
+	get_last_day,
+	cstr,
+	now_datetime,
+)
 import calendar
 from frappe.utils.background_jobs import enqueue
 from requests import request
@@ -52,7 +63,7 @@ def get_checkins(args=None, ip=None, port=None,password=0):
 	emp_list = [] #110.93.236.48
 	if not password:
 		password = 0
-	zk = ZK(ip, port=int(port), timeout=1500, password=password, force_udp=False, ommit_ping=False)
+	zk = ZK(ip, port=int(port), timeout=1500, password=password, force_udp=False, ommit_ping=True)
 	frappe.log_error("Starting in..","Attendance hook test")
 	try:
 		conn = zk.connect()
@@ -210,7 +221,7 @@ def get_checkouts(args=None,ip=None, port=None,password=0):
 		args = {"from_date":"2023-03-01","to_date":today()}
 	if not password:
 		password = 0
-	zk = ZK(ip, port=int(port), timeout=1500, password=password, force_udp=False, ommit_ping=False)
+	zk = ZK(ip, port=int(port), timeout=1500, password=password, force_udp=False, ommit_ping=True)
 	frappe.log_error("Starting out now","Attendance hook test")
 	try:
 		conn = zk.connect()
@@ -376,7 +387,7 @@ def get_checkins_checkouts(args=None,ip=None, port=None,password=0):
 		args = {"from_date":"2023-03-01","to_date":today()}
 	if not password:
 		password = 0
-	zk = ZK(ip, port=int(port), timeout=1500, password=password, force_udp=False, ommit_ping=False)
+	zk = ZK(ip, port=int(port), timeout=1500, password=password, force_udp=False, ommit_ping=True)
 	frappe.log_error("Starting in/out..","Attendance hook test")
 	try:
 		conn = zk.connect()
@@ -630,6 +641,305 @@ def get_attendance_from_hook():
 		"to_date":getdate(today()),
 	}
 	get_attendance_long(**args)
+
+
+LIVE_SYNC_LOCK_KEY = "attendance_live_sync_running"
+LIVE_SYNC_LOCK_TTL = 120
+LIVE_SYNC_INTERVAL_SECONDS = 15
+LIVE_SYNC_JOB_ID = "attendance_live_sync_daemon"
+LIVE_SYNC_DAEMON_SECONDS = 50 * 60  # run ~50 minutes then exit; watchdog restarts
+
+
+def _cancel_stuck_live_sync_jobs():
+	"""Remove stale RQ scheduled/failed live-sync jobs that block restart."""
+	from frappe.utils.background_jobs import create_job_id, get_queue
+
+	for queue_name in ("short", "long", "default"):
+		try:
+			q = get_queue(queue_name)
+			job_id = create_job_id(LIVE_SYNC_JOB_ID)
+			# also clear the old broken enqueue_in job id
+			legacy_id = create_job_id("attendance_live_sync_loop")
+			for jid in (job_id, legacy_id):
+				job = q.fetch_job(jid)
+				if not job:
+					from rq.job import Job
+					from frappe.utils.background_jobs import get_redis_conn
+
+					try:
+						job = Job.fetch(jid, connection=get_redis_conn())
+					except Exception:
+						job = None
+				if job:
+					try:
+						job.cancel()
+					except Exception:
+						pass
+					try:
+						job.delete()
+					except Exception:
+						pass
+		except Exception:
+			pass
+
+
+def ensure_attendance_live_sync_loop():
+	"""Minute watchdog: keep a live-poll daemon worker running."""
+	from frappe.utils.background_jobs import enqueue, is_job_enqueued
+
+	if is_job_enqueued(LIVE_SYNC_JOB_ID):
+		return {"status": "running"}
+
+	_cancel_stuck_live_sync_jobs()
+	enqueue(
+		"hr_vfg.hr_ventureforce_global.doctype.employee_attendance.attendance_connector.run_attendance_live_sync_daemon",
+		queue="long",
+		timeout=LIVE_SYNC_DAEMON_SECONDS + 120,
+		job_id=LIVE_SYNC_JOB_ID,
+		deduplicate=True,
+	)
+	return {"status": "started"}
+
+
+def run_attendance_live_sync_daemon():
+	"""Continuously poll machines every ~15s (replaces broken RQ enqueue_in loop)."""
+	import time
+
+	deadline = time.time() + LIVE_SYNC_DAEMON_SECONDS
+	while time.time() < deadline:
+		try:
+			sync_attendance_logs_live(reschedule=False)
+		except Exception as e:
+			_log_attendance_sync_error("Live Sync Daemon", e)
+		time.sleep(LIVE_SYNC_INTERVAL_SECONDS)
+
+
+def _parse_zk_attendance_row(attend):
+	"""Return (biometric_id, date_str, time_str, raw_str) from a ZK attendance record."""
+	raw = str(attend)
+	biometric_id = None
+	att_date = None
+	att_time = None
+
+	user_id = getattr(attend, "user_id", None)
+	timestamp = getattr(attend, "timestamp", None)
+	if user_id is not None and timestamp is not None:
+		biometric_id = str(user_id).strip()
+		if isinstance(timestamp, datetime):
+			att_date = timestamp.strftime("%Y-%m-%d")
+			att_time = timestamp.strftime("%H:%M:%S")
+		else:
+			ts = get_datetime(timestamp)
+			att_date = ts.strftime("%Y-%m-%d")
+			att_time = ts.strftime("%H:%M:%S")
+	else:
+		parts = raw.split()
+		if len(parts) >= 5:
+			biometric_id = str(parts[1]).strip()
+			att_date = str(parts[3]).strip()
+			att_time = str(parts[4]).strip()
+
+	return biometric_id, att_date, att_time, raw
+
+
+def _machine_log_type(machine_type, attend):
+	machine_type = (machine_type or "Both").strip()
+	if machine_type == "In":
+		return "Check In"
+	if machine_type == "Out":
+		return "Check Out"
+
+	# Both: prefer device punch/status when available (0/1 common for in/out).
+	punch = getattr(attend, "punch", None)
+	status = getattr(attend, "status", None)
+	value = punch if punch is not None else status
+	try:
+		value = int(value)
+	except (TypeError, ValueError):
+		value = None
+	if value in (0, 4):
+		return "Check In"
+	if value in (1, 5):
+		return "Check Out"
+	return "Punch"
+
+
+def _insert_attendance_log_if_missing(biometric_id, att_date, att_time, log_type, ip_key, raw):
+	exists = frappe.db.exists(
+		"Attendance Logs",
+		{
+			"biometric_id": biometric_id,
+			"attendance_date": att_date,
+			"attendance_time": att_time,
+			"type": log_type,
+			"ip": ip_key,
+		},
+	)
+	if exists:
+		return False
+
+	# Fallback: same punch already stored under another type label.
+	exists_any = frappe.db.sql(
+		"""
+		select name from `tabAttendance Logs`
+		where biometric_id=%s and attendance_date=%s and attendance_time=%s and ip=%s
+		limit 1
+		""",
+		(biometric_id, att_date, att_time, ip_key),
+	)
+	if exists_any:
+		return False
+
+	doc = frappe.new_doc("Attendance Logs")
+	doc.attendance = raw
+	doc.biometric_id = biometric_id
+	doc.attendance_date = att_date
+	doc.attendance_time = att_time
+	doc.type = log_type
+	doc.ip = ip_key
+	doc.flags.skip_employee_attendance = True
+	doc.insert(ignore_permissions=True)
+	return True
+
+
+MACHINE_STATUS_CACHE_KEY = "attendance_machine_integration_status"
+
+
+def _record_machine_integration_status(machines_status, created_total=0):
+	"""Persist last real machine integration result for Punch Portal."""
+	online = sum(1 for m in machines_status if m.get("online"))
+	payload = {
+		"checked_at": str(now_datetime()),
+		"integrated": online > 0 and online == len(machines_status) and len(machines_status) > 0,
+		"partial": online > 0 and online < len(machines_status),
+		"online_count": online,
+		"total_count": len(machines_status),
+		"created": created_total,
+		"machines": machines_status,
+	}
+	# keep long enough for portal polling
+	frappe.cache().set_value(MACHINE_STATUS_CACHE_KEY, payload, expires_in_sec=60 * 30)
+	return payload
+
+
+def _sync_machine_attendance_logs_live(machine, from_date, to_date):
+	ip = machine.ip
+	port = machine.port
+	password = machine.password or 0
+	ip_key = f"{ip}:{port}"
+	conn = None
+	created = 0
+	status = {
+		"ip": ip,
+		"port": str(port),
+		"type": machine.type or "Both",
+		"online": False,
+		"integrated": False,
+		"error": "",
+		"created": 0,
+	}
+
+	zk = ZK(
+		ip,
+		port=int(port),
+		timeout=20,
+		password=password,
+		force_udp=False,
+		ommit_ping=True,
+	)
+	try:
+		conn = zk.connect()
+		if not conn:
+			status["error"] = "Connect failed"
+			return created, status
+
+		status["online"] = True
+		status["integrated"] = True
+		attendance = conn.get_attendance() or []
+		from_dt = getdate(from_date)
+		to_dt = getdate(to_date)
+
+		for attend in attendance:
+			biometric_id, att_date, att_time, raw = _parse_zk_attendance_row(attend)
+			if not biometric_id or not att_date or not att_time:
+				continue
+			try:
+				row_date = getdate(att_date)
+			except Exception:
+				continue
+			if row_date < from_dt or row_date > to_dt:
+				continue
+
+			log_type = _machine_log_type(machine.type, attend)
+			if _insert_attendance_log_if_missing(
+				biometric_id, str(att_date), str(att_time), log_type, ip_key, raw
+			):
+				created += 1
+
+		status["created"] = created
+		if created:
+			frappe.db.commit()
+	except Exception as e:
+		status["error"] = cstr(e)
+		_log_attendance_sync_error("Live Sync", e, ip, port)
+	finally:
+		if conn:
+			try:
+				conn.disconnect()
+			except Exception:
+				pass
+
+	return created, status
+
+
+@frappe.whitelist()
+def sync_attendance_logs_live(reschedule=False):
+	"""
+	Near real-time poll: pull yesterday+today punches and insert
+	any missing rows into Attendance Logs only (no delete / no full rebuild).
+
+	Runs as a short scheduled job (not a long-queue daemon) so Get Attendance
+	jobs are not blocked.
+	"""
+	cache = frappe.cache()
+	if cache.get_value(LIVE_SYNC_LOCK_KEY):
+		return {"status": "skipped", "reason": "already running"}
+
+	cache.set_value(LIVE_SYNC_LOCK_KEY, 1, expires_in_sec=LIVE_SYNC_LOCK_TTL)
+	created_total = 0
+	machines_status = []
+	try:
+		hr_settings = frappe.get_single("V HR Settings")
+		machines = hr_settings.get("attendance_machine") or []
+		if not machines:
+			_record_machine_integration_status([], 0)
+			return {"status": "ok", "created": 0, "integrated": False}
+
+		args = {
+			"from_date": add_days(today(), -1),
+			"to_date": getdate(today()),
+		}
+		for machine in machines:
+			if not machine.ip or not machine.port:
+				continue
+			created, status = _sync_machine_attendance_logs_live(
+				machine, args["from_date"], args["to_date"]
+			)
+			created_total += created
+			machines_status.append(status)
+
+		integration = _record_machine_integration_status(machines_status, created_total)
+		return {
+			"status": "ok",
+			"created": created_total,
+			"integrated": integration.get("integrated"),
+			"machines": machines_status,
+		}
+	except Exception as e:
+		_log_attendance_sync_error("Live Sync Job", e)
+		return {"status": "error", "message": str(e), "integrated": False}
+	finally:
+		cache.delete_value(LIVE_SYNC_LOCK_KEY)
 
 
 @frappe.whitelist()

@@ -37,11 +37,22 @@ frappe.listview_settings['Employee Attendance'] = {
                 ],
                 primary_action: function () {
                     var args = dialog.get_values();
-                    console.log(args);
-                    listview.call_for_selected_items(
-                        "hr_vfg.hr_ventureforce_global.doctype.employee_attendance.attendance_connector.get_attendance_long", 
-                        args
-                    );
+                    if (!args) {
+                        return;
+                    }
+                    // Do not require list-row selection — fetch is driven by from/to dates.
+                    frappe.call({
+                        method: "hr_vfg.hr_ventureforce_global.doctype.employee_attendance.attendance_connector.get_attendance_long",
+                        args: args,
+                        freeze: true,
+                        freeze_message: __("Queuing biometric attendance fetch..."),
+                        callback: function () {
+                            frappe.show_alert({
+                                message: __("Queued for biometric attendance. It may take a few minutes."),
+                                indicator: "green",
+                            });
+                        },
+                    });
                     dialog.hide();
                 },
                 primary_action_label: __("Submit")

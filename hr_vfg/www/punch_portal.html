@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+	<title>Punch Portal</title>
+	<meta name="theme-color" content="#0f172a" />
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+	<meta name="apple-mobile-web-app-title" content="Punch Portal" />
+	<link rel="manifest" href="/assets/hr_vfg/punch_portal/manifest.webmanifest" />
+	<link rel="icon" href="/assets/hr_vfg/punch_portal/icon.svg" type="image/svg+xml" />
+	<link rel="stylesheet" href="/assets/hr_vfg/punch_portal/punch_portal.css?v=3" />
+</head>
+<body>
+	<div id="app" class="pp-app">
+		<header class="pp-header">
+			<div class="pp-brand">
+				<span class="pp-brand-dot" id="brandDot"></span>
+				<strong>Punch Portal</strong>
+			</div>
+			<div class="pp-clock" id="clock">--:--:--</div>
+			<button type="button" class="pp-sound-btn" id="enableSound" title="Enable sound">
+				Enable Sound
+			</button>
+		</header>
+
+		<section class="pp-machines" id="machineBar">
+			<div class="pp-machines-head">
+				<span class="pp-integration-badge" id="integrationBadge">Checking machines…</span>
+				<span class="pp-machines-meta" id="machineMeta"></span>
+			</div>
+			<div class="pp-machine-list" id="machineList"></div>
+		</section>
+
+		<main class="pp-main" id="stage">
+			<section class="pp-hero" id="hero">
+				<div class="pp-idle" id="idleState">
+					<div class="pp-idle-ring"></div>
+					<h1>Waiting for punch…</h1>
+					<p>Employee photo, time and log type will appear here instantly.</p>
+				</div>
+
+				<div class="pp-punch hidden" id="punchState">
+					<div class="pp-photo-wrap">
+						<img id="empImage" class="pp-photo" alt="Employee" />
+						<div class="pp-photo-fallback" id="empFallback">?</div>
+					</div>
+					<div class="pp-meta">
+						<div class="pp-type-badge" id="logType">Check In</div>
+						<h1 id="empName">Employee</h1>
+						<div class="pp-sub" id="empSub"></div>
+						<div class="pp-time" id="punchTime">--:--:--</div>
+						<div class="pp-date" id="punchDate"></div>
+					</div>
+				</div>
+			</section>
+
+			<aside class="pp-feed">
+				<h2>Recent Punches</h2>
+				<ul id="feedList" class="pp-feed-list"></ul>
+			</aside>
+		</main>
+
+		<footer class="pp-footer">
+			<span id="statusText">Connecting…</span>
+			<span id="lastSync"></span>
+		</footer>
+	</div>
+
+	<script src="/assets/hr_vfg/punch_portal/punch_portal.js?v=3"></script>
+</body>
+</html>

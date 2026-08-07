@@ -36,6 +36,55 @@ function copy_payroll_error(text) {
     return Promise.resolve();
 }
 
+function show_gemini_payroll_explanation(frm, explanation, source) {
+    const title =
+        source === "gemini"
+            ? __("Why this failed (Gemini)")
+            : __("Why this failed");
+    const body = `
+        <p>${__("Payroll could not be completed. Explanation below:")}</p>
+        <pre style="white-space: pre-wrap; max-height: 320px; overflow: auto; margin: 0;">${frappe.utils.escape_html(
+            explanation || ""
+        )}</pre>
+    `;
+
+    // Same style as desk info / error banners (blue = info)
+    frappe.msgprint({
+        title: title,
+        indicator: "blue",
+        message: body,
+    });
+
+    frm.set_intro(
+        `${__("AI explanation")}: ${(explanation || "").split("\n")[0]}`,
+        "blue"
+    );
+}
+
+function fetch_and_show_gemini_explanation(frm) {
+    if (frm.__hr_vfg_gemini_explain_requested) {
+        return;
+    }
+    frm.__hr_vfg_gemini_explain_requested = true;
+
+    frappe.call({
+        method: "hr_vfg.hr_ventureforce_global.gemini_explain.explain_payroll_entry_failure",
+        args: { payroll_entry_name: frm.doc.name },
+        freeze: true,
+        freeze_message: __("Asking Gemini why this payroll failed..."),
+        callback(r) {
+            const data = r.message || {};
+            if (!data.explanation) {
+                return;
+            }
+            show_gemini_payroll_explanation(frm, data.explanation, data.source);
+        },
+        error() {
+            frm.__hr_vfg_gemini_explain_requested = false;
+        },
+    });
+}
+
 function show_payroll_failure_message(frm) {
     if (frm.doc.status !== "Failed" || !frm.doc.error_message) {
         return;
@@ -57,6 +106,11 @@ function show_payroll_failure_message(frm) {
                 });
             });
         }, __("Actions"));
+
+        frm.add_custom_button(__("Explain with Gemini"), () => {
+            frm.__hr_vfg_gemini_explain_requested = false;
+            fetch_and_show_gemini_explanation(frm);
+        }, __("Actions"));
     });
 
     if (frm.__hr_vfg_payroll_failure_message_shown) {
@@ -72,18 +126,16 @@ function show_payroll_failure_message(frm) {
             <pre style="white-space: pre-wrap; max-height: 220px; overflow: auto;">${frappe.utils.escape_html(error)}</pre>
         `,
         primary_action: {
-            label: __("Copy for AI"),
+            label: __("Explain with Gemini"),
             action() {
-                copy_payroll_error(get_payroll_error_prompt(frm)).then(() => {
-                    frappe.hide_msgprint();
-                    frappe.show_alert({
-                        message: __("Payroll error copied. Paste it into AI or send it to support."),
-                        indicator: "green",
-                    });
-                });
+                frappe.hide_msgprint();
+                fetch_and_show_gemini_explanation(frm);
             },
         },
     });
+
+    // Auto-send error to Gemini (or local fallback) and show as info
+    fetch_and_show_gemini_explanation(frm);
 }
 
 frappe.ui.form.on("Payroll Entry", {
