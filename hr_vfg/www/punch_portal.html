@@ -11,7 +11,7 @@
 	<meta name="apple-mobile-web-app-title" content="Punch Portal" />
 	<link rel="manifest" href="/assets/hr_vfg/punch_portal/manifest.webmanifest" />
 	<link rel="icon" href="/assets/hr_vfg/punch_portal/icon.svg" type="image/svg+xml" />
-	<link rel="stylesheet" href="/assets/hr_vfg/punch_portal/punch_portal.css?v=3" />
+	<link rel="stylesheet" href="/assets/hr_vfg/punch_portal/punch_portal.css?v=5" />
 </head>
 <body>
 	<div id="app" class="pp-app">
@@ -69,6 +69,92 @@
 		</footer>
 	</div>
 
-	<script src="/assets/hr_vfg/punch_portal/punch_portal.js?v=3"></script>
+	<script src="/assets/hr_vfg/punch_portal/punch_portal.js?v=5"></script>
+	<script>
+	// Standalone machine-status updater (works even if an old cached JS still says "Synced")
+	(function () {
+		function esc(v) {
+			return String(v || "")
+				.replace(/&/g, "&amp;")
+				.replace(/</g, "&lt;")
+				.replace(/>/g, "&gt;");
+		}
+		async function refreshMachines() {
+			const badge = document.getElementById("integrationBadge");
+			const list = document.getElementById("machineList");
+			const meta = document.getElementById("machineMeta");
+			const statusText = document.getElementById("statusText");
+			const lastSync = document.getElementById("lastSync");
+			const brandDot = document.getElementById("brandDot");
+			if (!badge || !list) return;
+			try {
+				const res = await fetch(
+					"/api/method/hr_vfg.hr_ventureforce_global.punch_portal.get_machine_status",
+					{ credentials: "same-origin", headers: { Accept: "application/json" } }
+				);
+				const data = await res.json();
+				const s = data.message || {};
+				const integrated = !!s.integrated;
+				const partial = !!s.partial;
+				const online = s.online_count || 0;
+				const total = s.total_count || (s.machines || []).length;
+
+				badge.textContent = s.status_label || "Not integrated with machines";
+				badge.className = "pp-integration-badge " + (integrated ? "integrated" : (partial || online) ? "partial" : "offline");
+				if (brandDot) {
+					brandDot.classList.remove("online", "offline");
+					brandDot.classList.add(integrated || online ? "online" : "offline");
+				}
+				if (meta) {
+					meta.textContent = online + "/" + total + " online · " + (s.source === "live_sync" ? "from machine sync" : "TCP check only");
+				}
+				list.innerHTML = "";
+				(s.machines || []).forEach(function (m) {
+					const up = !!(m.integrated || m.online);
+					const state = m.integrated ? "Integrated" : m.online ? "Reachable" : "Offline";
+					const chip = document.createElement("div");
+					chip.className = "pp-machine-chip " + (up ? "online" : "offline");
+					chip.innerHTML =
+						'<span class="dot"></span><span><strong>' +
+						esc((m.type || "Machine") + " " + m.ip + ":" + m.port) +
+						"</strong> · " +
+						esc(state) +
+						"</span>";
+					list.appendChild(chip);
+				});
+				if (!(s.machines || []).length) {
+					list.innerHTML = '<div class="pp-machine-chip offline"><span class="dot"></span><span>No machines configured</span></div>';
+				}
+				if (statusText) {
+					statusText.textContent = integrated
+						? "Machines integrated"
+						: online
+							? "Machines reachable — not fully integrated"
+							: "Not integrated with machines";
+				}
+				if (lastSync) {
+					lastSync.textContent = "Portal refreshed " + new Date().toLocaleTimeString();
+				}
+			} catch (e) {
+				badge.textContent = "Machine status unavailable";
+				badge.className = "pp-integration-badge offline";
+				if (lastSync) lastSync.textContent = "Portal refreshed " + new Date().toLocaleTimeString();
+			}
+		}
+		refreshMachines();
+		setInterval(refreshMachines, 15000);
+		if ("serviceWorker" in navigator) {
+			navigator.serviceWorker.getRegistrations().then(function (regs) {
+				regs.forEach(function (r) { r.unregister(); });
+			});
+			if (window.caches) {
+				caches.keys().then(function (keys) {
+					keys.filter(function (k) { return k.indexOf("punch-portal") === 0; })
+						.forEach(function (k) { caches.delete(k); });
+				});
+			}
+		}
+	})();
+	</script>
 </body>
 </html>

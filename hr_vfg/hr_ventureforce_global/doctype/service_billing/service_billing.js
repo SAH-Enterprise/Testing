@@ -3,6 +3,8 @@
 
 frappe.ui.form.on("Service Billing", {
 	refresh(frm) {
+		set_status_indicator(frm);
+
 		if (frm.doc.docstatus === 0) {
 			frm.add_custom_button("Fetch Data", () => {
 				if (!frm.doc.from_date || !frm.doc.to_date) {
@@ -193,6 +195,21 @@ frappe.ui.form.on("Service Billing", {
 		}
 	},
 });
+
+function set_status_indicator(frm) {
+	const colors = {
+		Draft: "red",
+		"To Bill": "orange",
+		Unpaid: "orange",
+		"Partly Paid": "yellow",
+		Paid: "green",
+		Cancelled: "gray",
+	};
+	const status = frm.doc.status || (frm.doc.docstatus === 1 ? "To Bill" : "Draft");
+	if (frm.doc.docstatus > 0 || status) {
+		frm.page.set_indicator(__(status), colors[status] || "blue");
+	}
+}
 
 frappe.ui.form.on("Service Billing Meal Form", {
 	meal_forms_remove(frm) {

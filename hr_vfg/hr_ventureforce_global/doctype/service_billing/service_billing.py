@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
@@ -11,14 +12,30 @@ class ServiceBilling(Document):
 		self._validate_dates()
 		self._set_supplier()
 		self._set_totals()
+		self.set_status()
 
 	def on_submit(self):
 		self._mark_meal_forms_billed()
 		self._create_purchase_invoice()
+		self.set_status(update=True)
+
+	def before_cancel(self):
+		self._validate_linked_purchase_invoice_before_remove(_("cancel"))
+
+	def on_cancel(self):
+		self._unmark_meal_forms()
+		self.db_set("status", "Cancelled")
+		self.db_set("per_paid", 0)
+
+	def on_trash(self):
+		if self.docstatus == 1:
+			frappe.throw(_("Submitted Service Billing cannot be deleted. Cancel it first."))
+		self._validate_linked_purchase_invoice_before_remove(_("delete"))
+		self._unmark_meal_forms()
 
 	def _validate_dates(self):
 		if self.from_date and self.to_date and self.from_date > self.to_date:
-			frappe.throw("From Date cannot be after To Date.")
+			frappe.throw(_("From Date cannot be after To Date."))
 
 	def _set_totals(self):
 		self.total_qty = sum(flt(row.total_qty) for row in self.meal_forms)
@@ -30,6 +47,83 @@ class ServiceBilling(Document):
 			self.supplier = None
 			return
 		self.supplier = frappe.db.get_value("Meal Provider", self.service_provider, "supplier")
+
+	def set_status(self, update=False, update_modified=False):
+		"""Mirror billing/payment progress like Purchase Receipt / Purchase Invoice."""
+		if self.docstatus == 0:
+			status = "Draft"
+			per_paid = 0
+		elif self.docstatus == 2:
+			status = "Cancelled"
+			per_paid = 0
+		else:
+			status, per_paid = self._status_and_percent_from_purchase_invoice()
+
+		self.status = status
+		self.per_paid = per_paid
+		if update:
+			self.db_set(
+				{"status": status, "per_paid": per_paid},
+				update_modified=update_modified,
+			)
+
+	def _status_and_percent_from_purchase_invoice(self):
+		if not self.purchase_invoice:
+			return "To Bill", 0
+
+		pi = frappe.db.get_value(
+			"Purchase Invoice",
+			self.purchase_invoice,
+			["docstatus", "status", "outstanding_amount", "grand_total", "paid_amount"],
+			as_dict=True,
+		)
+		if not pi or pi.docstatus == 2:
+			return "To Bill", 0
+
+		# Draft PI created from Service Billing — still pending billing/payment
+		if pi.docstatus == 0:
+			return "To Bill", 0
+
+		grand_total = flt(pi.grand_total)
+		outstanding = flt(pi.outstanding_amount)
+		if grand_total > 0:
+			per_paid = max(0, min(100, ((grand_total - outstanding) / grand_total) * 100))
+		else:
+			per_paid = 100 if outstanding <= 0 else 0
+
+		pi_status = (pi.status or "").strip()
+		if pi_status == "Paid" or (grand_total and outstanding <= 0):
+			return "Paid", 100
+		if pi_status == "Partly Paid" or (grand_total and 0 < outstanding < grand_total):
+			return "Partly Paid", flt(per_paid, 2)
+		if pi_status == "Overdue":
+			return "Unpaid", flt(per_paid, 2)
+		if pi_status == "Unpaid":
+			return "Unpaid", flt(per_paid, 2)
+
+		if grand_total and outstanding < grand_total:
+			return "Partly Paid", flt(per_paid, 2)
+		return "Unpaid", flt(per_paid, 2)
+
+	def _validate_linked_purchase_invoice_before_remove(self, action):
+		"""Do not allow cancel/delete of Service Billing while linked PI still exists."""
+		if not self.purchase_invoice:
+			return
+
+		if not frappe.db.exists("Purchase Invoice", self.purchase_invoice):
+			return
+
+		pi_docstatus = frappe.db.get_value("Purchase Invoice", self.purchase_invoice, "docstatus")
+		if pi_docstatus == 2:
+			return
+
+		frappe.throw(
+			_(
+				"Cannot {0} Service Billing {1} because Purchase Invoice {2} still exists. "
+				"Cancel or delete the Purchase Invoice first."
+			).format(action, self.name, frappe.bold(self.purchase_invoice)),
+			title=_("Linked Purchase Invoice"),
+		)
 
 	def _mark_meal_forms_billed(self):
 		for row in self.meal_forms:
@@ -44,23 +138,41 @@ class ServiceBilling(Document):
 				},
 			)
 
+	def _unmark_meal_forms(self):
+		for row in self.meal_forms:
+			if not row.meal_form:
+				continue
+			values = {
+				"billed": 0,
+				"service_billing": None,
+			}
+			if frappe.db.has_column("Meal Form", "invoiced"):
+				values.update(
+					{
+						"invoiced": 0,
+						"invoiced_amount": 0,
+						"purchase_invoice": None,
+					}
+				)
+			frappe.db.set_value("Meal Form", row.meal_form, values)
+
 	def _create_purchase_invoice(self):
 		if self.purchase_invoice:
 			return
 
 		if not self.service_provider:
-			frappe.throw("Service Provider is required to create Purchase Invoice.")
+			frappe.throw(_("Service Provider is required to create Purchase Invoice."))
 
 		supplier = frappe.db.get_value("Meal Provider", self.service_provider, "supplier")
 		if not supplier:
-			frappe.throw("Supplier is not set in the selected Service Provider.")
+			frappe.throw(_("Supplier is not set in the selected Service Provider."))
 
 		company = (
 			frappe.defaults.get_user_default("Company")
 			or frappe.db.get_single_value("Global Defaults", "default_company")
 		)
 		if not company:
-			frappe.throw("Default Company is not set.")
+			frappe.throw(_("Default Company is not set."))
 
 		company_cost_center = frappe.db.get_value("Company", company, "cost_center")
 		service_type_cost_center = None
@@ -74,7 +186,7 @@ class ServiceBilling(Document):
 		supplier_invoice_no = getattr(self, "supplier_invoice_no", None)
 		supplier_invoice_date = getattr(self, "supplier_invoice_date", None)
 		if not supplier_invoice_no or not supplier_invoice_date:
-			frappe.throw("Supplier Invoice No and Supplier Invoice Date are required.")
+			frappe.throw(_("Supplier Invoice No and Supplier Invoice Date are required."))
 
 		if self.summary:
 			pi = frappe.new_doc("Purchase Invoice")
@@ -124,7 +236,7 @@ class ServiceBilling(Document):
 			if self.service_type:
 				item = frappe.db.get_value("Meal Type", self.service_type, "item")
 			if not item:
-				frappe.throw("Service Detail rows are required or set Item on Meal Type.")
+				frappe.throw(_("Service Detail rows are required or set Item on Meal Type."))
 
 			qty = flt(self.total_qty) or 1
 			amount = flt(self.total_amount)
@@ -189,7 +301,9 @@ class ServiceBilling(Document):
 			)
 		if not cost_center:
 			frappe.throw(
-				"Cost Center is required. Set Service Type Cost Center, Company Cost Center, or Item Default Buying Cost Center."
+				_(
+					"Cost Center is required. Set Service Type Cost Center, Company Cost Center, or Item Default Buying Cost Center."
+				)
 			)
 		pi.append(
 			"items",
@@ -213,7 +327,7 @@ class ServiceBilling(Document):
 			)
 			pi.owner = source_owner
 
-		pi.submit()
+		# pi.submit()
 
 		if source_owner and source_owner not in ("Administrator", "Guest"):
 			frappe.share.add_docshare(
@@ -228,6 +342,7 @@ class ServiceBilling(Document):
 			)
 
 		self.db_set("purchase_invoice", pi.name)
+		self.purchase_invoice = pi.name
 		self.db_set("supplier", supplier)
 
 		for row in self.meal_forms:
@@ -244,10 +359,59 @@ class ServiceBilling(Document):
 			)
 
 
+def update_service_billing_status_from_pi(doc, method=None):
+	"""Keep Service Billing status in sync when Purchase Invoice changes."""
+	sb_name = frappe.db.get_value("Service Billing", {"purchase_invoice": doc.name}, "name")
+	if not sb_name:
+		return
+
+	sb = frappe.get_doc("Service Billing", sb_name)
+	if sb.docstatus != 1:
+		return
+	sb.set_status(update=True)
+
+
+def clear_service_billing_link_on_pi_cancel(doc, method=None):
+	"""When PI is cancelled/deleted, free the Service Billing link and reset meal form invoice flags."""
+	sb_name = frappe.db.get_value("Service Billing", {"purchase_invoice": doc.name}, "name")
+	if not sb_name:
+		return
+
+	sb = frappe.get_doc("Service Billing", sb_name)
+	frappe.db.set_value("Service Billing", sb_name, "purchase_invoice", None, update_modified=False)
+
+	for row in sb.meal_forms:
+		if not row.meal_form:
+			continue
+		values = {}
+		if frappe.db.has_column("Meal Form", "invoiced"):
+			values.update(
+				{
+					"invoiced": 0,
+					"invoiced_amount": 0,
+					"purchase_invoice": None,
+				}
+			)
+		if values:
+			frappe.db.set_value("Meal Form", row.meal_form, values)
+
+	# Reload link cleared for status calc
+	sb.purchase_invoice = None
+	if sb.docstatus == 1:
+		sb.set_status(update=True)
+	elif sb.docstatus == 2:
+		frappe.db.set_value(
+			"Service Billing",
+			sb_name,
+			{"status": "Cancelled", "per_paid": 0},
+			update_modified=False,
+		)
+
+
 @frappe.whitelist()
 def get_meal_forms(from_date, to_date, meal_type=None, meal_provider=None, contractor=None):
 	if not from_date or not to_date:
-		frappe.throw("From Date and To Date are required.")
+		frappe.throw(_("From Date and To Date are required."))
 
 	has_billed = frappe.db.has_column("Meal Form", "billed")
 	has_invoiced = frappe.db.has_column("Meal Form", "invoiced")

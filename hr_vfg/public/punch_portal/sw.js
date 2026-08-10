@@ -1,8 +1,8 @@
-const CACHE = "punch-portal-v3";
+const CACHE = "punch-portal-v5";
 const ASSETS = [
-	"/punch_portal?v=3",
-	"/assets/hr_vfg/punch_portal/punch_portal.css?v=3",
-	"/assets/hr_vfg/punch_portal/punch_portal.js?v=3",
+	"/punch_portal?v=5",
+	"/assets/hr_vfg/punch_portal/punch_portal.css?v=5",
+	"/assets/hr_vfg/punch_portal/punch_portal.js?v=5",
 	"/assets/hr_vfg/punch_portal/manifest.webmanifest",
 	"/assets/hr_vfg/punch_portal/icon.svg",
 ];

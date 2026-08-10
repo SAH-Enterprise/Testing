@@ -364,6 +364,10 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: 0.65rem;
+	/* Prevent browser scroll-anchoring from hiding newly prepended punches */
+	overflow-anchor: none;
+	flex: 1;
+	min-height: 0;
 }
 
 .pp-feed-item {

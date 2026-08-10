@@ -94,6 +94,7 @@
 		els.logType.textContent = punch.type || "Punch";
 		els.logType.className = `pp-type-badge ${typeClass(punch.type)}`;
 
+		const initial = avatarInitial(punch);
 		if (punch.image) {
 			els.empImage.src = punch.image;
 			els.empImage.classList.add("visible");
@@ -101,14 +102,23 @@
 			els.empImage.onerror = () => {
 				els.empImage.classList.remove("visible");
 				els.empFallback.classList.remove("hidden");
-				els.empFallback.textContent = (punch.employee_name || "?").slice(0, 1).toUpperCase();
+				els.empFallback.textContent = initial;
 			};
 		} else {
 			els.empImage.removeAttribute("src");
 			els.empImage.classList.remove("visible");
 			els.empFallback.classList.remove("hidden");
-			els.empFallback.textContent = (punch.employee_name || "?").slice(0, 1).toUpperCase();
+			els.empFallback.textContent = initial;
 		}
+	}
+
+	function avatarInitial(punch) {
+		const name = String(punch.employee_name || "").trim();
+		if (name && !/^ID\s*\d+/i.test(name)) {
+			return name.slice(0, 1).toUpperCase();
+		}
+		const bio = String(punch.biometric_id || "").trim();
+		return bio ? bio.slice(-2) : "?";
 	}
 
 	function showPunch(punch, { announce = true, addFeed = true } = {}) {
@@ -127,38 +137,59 @@
 		}
 	}
 
-	function prependFeed(punch) {
-		const li = document.createElement("li");
-		li.className = "pp-feed-item";
-		const initial = (punch.employee_name || "?").slice(0, 1).toUpperCase();
-		const name = escapeHtml(punch.employee_name || "");
-		const type = escapeHtml(punch.type || "Punch");
-		const date = escapeHtml(punch.attendance_date || "");
-		const time = escapeHtml(punch.attendance_time || "");
-		const img = punch.image
-			? `<img src="${escapeHtml(punch.image)}" alt="" />`
-			: `<div class="pp-feed-avatar">${initial}</div>`;
-		li.innerHTML = `
-			${img}
-			<div>
-				<div class="pp-feed-name">${name}</div>
-				<div class="pp-feed-detail">${type} · ${date}</div>
-			</div>
-			<div class="pp-feed-time">${time}</div>
-		`;
-		const imgEl = li.querySelector("img");
-		if (imgEl) {
-			imgEl.onerror = () => {
-				const fallback = document.createElement("div");
-				fallback.className = "pp-feed-avatar";
-				fallback.textContent = initial;
-				imgEl.replaceWith(fallback);
-			};
+	function prependFeed(punch, { trim = true } = {}) {
+		try {
+			const li = document.createElement("li");
+			li.className = "pp-feed-item";
+			li.dataset.punch = punch.name || "";
+			const initial = avatarInitial(punch);
+			const name = escapeHtml(punch.employee_name || "");
+			const type = escapeHtml(punch.type || "Punch");
+			const date = escapeHtml(punch.attendance_date || "");
+			const time = escapeHtml(punch.attendance_time || "");
+			const img = punch.image
+				? `<img src="${escapeHtml(punch.image)}" alt="" />`
+				: `<div class="pp-feed-avatar">${escapeHtml(initial)}</div>`;
+			li.innerHTML = `
+				${img}
+				<div>
+					<div class="pp-feed-name">${name}</div>
+					<div class="pp-feed-detail">${type} · ${date}</div>
+				</div>
+				<div class="pp-feed-time">${time}</div>
+			`;
+			const imgEl = li.querySelector("img");
+			if (imgEl) {
+				imgEl.onerror = () => {
+					const fallback = document.createElement("div");
+					fallback.className = "pp-feed-avatar";
+					fallback.textContent = initial;
+					imgEl.replaceWith(fallback);
+				};
+			}
+			els.feedList.prepend(li);
+			if (trim) {
+				while (els.feedList.children.length > 60) {
+					els.feedList.removeChild(els.feedList.lastChild);
+				}
+			}
+		} catch (err) {
+			console.error("feed item failed", punch && punch.name, err);
 		}
-		els.feedList.prepend(li);
-		while (els.feedList.children.length > 30) {
+	}
+
+	function rebuildFeed(punches) {
+		els.feedList.innerHTML = "";
+		// punches are oldest→newest; prepend so newest ends on top
+		punches.forEach((punch) => {
+			if (!punch || !punch.name || seen.has(punch.name)) return;
+			seen.add(punch.name);
+			prependFeed(punch, { trim: false });
+		});
+		while (els.feedList.children.length > 60) {
 			els.feedList.removeChild(els.feedList.lastChild);
 		}
+		els.feedList.scrollTop = 0;
 	}
 
 	function escapeHtml(value) {
@@ -179,7 +210,7 @@
 	}
 
 	function renderMachineStatus(status) {
-		if (!status) return;
+		if (!status || !els.integrationBadge || !els.machineList) return;
 		lastMachineStatus = status;
 		const integrated = !!status.integrated;
 		const partial = !!status.partial;
@@ -232,9 +263,11 @@
 	}
 
 	function updateFooterStatus() {
+		if (!els.statusText || !els.lastSync) return;
 		const ms = lastMachineStatus;
 		if (!ms) {
 			els.statusText.textContent = "Checking machine integration…";
+			els.lastSync.textContent = `Portal refreshed ${new Date().toLocaleTimeString()}`;
 			return;
 		}
 		if (ms.integrated) {
@@ -291,7 +324,7 @@
 				"hr_vfg.hr_ventureforce_global.punch_portal.get_latest_punches",
 				{
 					since: since || "",
-					limit: 25,
+					limit: bootstrapped ? 40 : 50,
 				}
 			);
 			const punches = payload.punches || [];
@@ -301,18 +334,17 @@
 			}
 
 			if (!bootstrapped) {
-				punches.forEach((punch) => {
-					if (!seen.has(punch.name)) {
-						seen.add(punch.name);
-						prependFeed(punch);
-					}
-				});
+				rebuildFeed(punches);
 				if (punches.length) {
 					renderHero(punches[punches.length - 1]);
 				}
 				bootstrapped = true;
 			} else {
 				punches.forEach((punch) => showPunch(punch, { announce: true }));
+				// Keep newest punches visible after live prepends
+				if (punches.length) {
+					els.feedList.scrollTop = 0;
+				}
 			}
 
 			since = payload.server_time || since;
@@ -333,10 +365,20 @@
 	});
 
 	if ("serviceWorker" in navigator) {
-		navigator.serviceWorker
-			.register("/assets/hr_vfg/punch_portal/sw.js?v=3")
-			.then((reg) => reg.update())
-			.catch(() => {});
+		// Drop old cached portal SW that kept showing "Synced" without machine status.
+		navigator.serviceWorker.getRegistrations().then((regs) => {
+			Promise.all(regs.map((r) => r.unregister())).finally(() => {
+				navigator.serviceWorker
+					.register("/assets/hr_vfg/punch_portal/sw.js?v=5")
+					.then((reg) => reg.update())
+					.catch(() => {});
+			});
+		});
+		if (window.caches && caches.keys) {
+			caches.keys().then((keys) =>
+				Promise.all(keys.filter((k) => k.startsWith("punch-portal")).map((k) => caches.delete(k)))
+			);
+		}
 	}
 
 	tickClock();

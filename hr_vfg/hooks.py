@@ -133,6 +133,12 @@ doc_events = {
 		],
 		"on_update": "hr_vfg.hr_ventureforce_global.doctype.short_leave.short_leave.on_attendance_log_update",
 	},
+	"Purchase Invoice": {
+		"on_submit": "hr_vfg.hr_ventureforce_global.doctype.service_billing.service_billing.update_service_billing_status_from_pi",
+		"on_update_after_submit": "hr_vfg.hr_ventureforce_global.doctype.service_billing.service_billing.update_service_billing_status_from_pi",
+		"on_cancel": "hr_vfg.hr_ventureforce_global.doctype.service_billing.service_billing.clear_service_billing_link_on_pi_cancel",
+		"on_trash": "hr_vfg.hr_ventureforce_global.doctype.service_billing.service_billing.clear_service_billing_link_on_pi_cancel",
+	},
 }
 
 # Scheduled Tasks
@@ -140,9 +146,9 @@ doc_events = {
 
 scheduler_events = {
     "cron": {
-	# Near real-time Attendance Logs pull (non-blocking; do not use long-queue daemon)
-	"*/2 * * * *": [
-			"hr_vfg.hr_ventureforce_global.doctype.employee_attendance.attendance_connector.sync_attendance_logs_live"
+	# Keep fast live-sync daemon alive (polls machines ~every 25s on short queue)
+	"*/1 * * * *": [
+			"hr_vfg.hr_ventureforce_global.doctype.employee_attendance.attendance_connector.ensure_attendance_live_sync_loop"
 		],
 	# Full rebuild into Employee Attendance (check-in/out) every 5 hours
 	"0 */5 * * *": [

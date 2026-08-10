@@ -5,6 +5,123 @@ import frappe
 from frappe.utils import cint, cstr, get_url, now_datetime
 from urllib.parse import quote
 
+ZK_USER_CACHE_KEY = "punch_portal_zk_user_names"
+ZK_USER_FILE = "punch_portal_zk_user_names.json"
+
+
+def _zk_user_file_path():
+	return frappe.get_site_path("private", "files", ZK_USER_FILE)
+
+
+def _load_zk_user_names():
+	"""Load machine user_id -> name map (Redis, then durable file)."""
+	cache = frappe.cache().get_value(ZK_USER_CACHE_KEY)
+	if cache:
+		return cache
+	path = _zk_user_file_path()
+	try:
+		import json
+		import os
+
+		if os.path.exists(path):
+			with open(path, "r", encoding="utf-8") as fh:
+				cache = json.load(fh) or {}
+			if cache:
+				frappe.cache().set_value(ZK_USER_CACHE_KEY, cache, expires_in_sec=60 * 60 * 12)
+				return cache
+	except Exception:
+		pass
+	return {}
+
+
+def _save_zk_user_names(cache):
+	frappe.cache().set_value(ZK_USER_CACHE_KEY, cache, expires_in_sec=60 * 60 * 12)
+	try:
+		import json
+		import os
+
+		path = _zk_user_file_path()
+		os.makedirs(os.path.dirname(path), exist_ok=True)
+		with open(path, "w", encoding="utf-8") as fh:
+			json.dump(cache, fh)
+	except Exception:
+		pass
+
+
+def _biometric_lookup_candidates(biometric_id):
+	"""Return possible Employee.biometric_id values for a machine user id."""
+	bio = cstr(biometric_id).strip()
+	if not bio:
+		return []
+	candidates = [bio]
+	if bio.isdigit():
+		stripped = bio.lstrip("0") or "0"
+		if stripped != bio:
+			candidates.append(stripped)
+		# common pad widths
+		for width in (3, 4, 5):
+			candidates.append(bio.zfill(width))
+	# unique preserve order
+	seen = set()
+	out = []
+	for c in candidates:
+		if c not in seen:
+			seen.add(c)
+			out.append(c)
+	return out
+
+
+def _get_employee_by_biometric(biometric_id):
+	for candidate in _biometric_lookup_candidates(biometric_id):
+		emp = frappe.db.get_value(
+			"Employee",
+			{"biometric_id": candidate},
+			["name", "employee_name", "image", "department", "designation", "biometric_id"],
+			as_dict=True,
+		)
+		if emp:
+			return emp
+	return None
+
+
+def _get_zk_user_name(biometric_id):
+	cache = _load_zk_user_names()
+	bio = cstr(biometric_id).strip()
+	if bio in cache:
+		return cache.get(bio) or ""
+	if bio.isdigit():
+		return cache.get(bio.lstrip("0") or "0") or cache.get(str(int(bio))) or ""
+	return ""
+
+
+def remember_zk_users(users):
+	"""Store machine user_id -> name map for Punch Portal fallback labels."""
+	if not users:
+		return
+	cache = _load_zk_user_names()
+	for user in users:
+		uid = cstr(getattr(user, "user_id", "") or getattr(user, "uid", "")).strip()
+		name = cstr(getattr(user, "name", "")).strip()
+		if uid and name:
+			cache[uid] = name
+			if uid.isdigit():
+				cache[str(int(uid))] = name
+	_save_zk_user_names(cache)
+
+
+def _photo_api_url(biometric_id=None, employee=None):
+	if employee:
+		return (
+			"/api/method/hr_vfg.hr_ventureforce_global.punch_portal.get_employee_photo"
+			f"?employee={quote(cstr(employee))}"
+		)
+	if biometric_id:
+		return (
+			"/api/method/hr_vfg.hr_ventureforce_global.punch_portal.get_employee_photo"
+			f"?biometric_id={quote(cstr(biometric_id))}"
+		)
+	return ""
+
 
 def build_punch_payload(log_doc_or_dict):
 	"""Build display payload for punch portal from Attendance Logs."""
@@ -21,43 +138,31 @@ def build_punch_payload(log_doc_or_dict):
 	designation = ""
 
 	if biometric_id:
-		emp = frappe.db.get_value(
-			"Employee",
-			{"biometric_id": biometric_id},
-			["name", "employee_name", "image", "department", "designation"],
-			as_dict=True,
-		)
+		emp = _get_employee_by_biometric(biometric_id)
 		if emp:
 			employee = emp.name
-			employee_name = emp.employee_name or emp.name
+			employee_name = (emp.employee_name or emp.name or "").strip()
 			image = emp.image or ""
 			department = emp.department or ""
 			designation = emp.designation or ""
+		else:
+			# Fallback label from machine user list when Employee.biometric_id is not mapped
+			employee_name = _get_zk_user_name(biometric_id)
 
 	image_url = ""
-	if image:
-		if image.startswith("http://") or image.startswith("https://"):
-			# Prefer portal proxy for private files so kiosk guests can load photos
-			if "/private/files/" in image and biometric_id:
-				image_url = (
-					"/api/method/hr_vfg.hr_ventureforce_global.punch_portal.get_employee_photo"
-					f"?biometric_id={quote(biometric_id)}"
-				)
-			else:
-				image_url = image
-		elif image.startswith("/private/files/") and biometric_id:
-			image_url = (
-				"/api/method/hr_vfg.hr_ventureforce_global.punch_portal.get_employee_photo"
-				f"?biometric_id={quote(biometric_id)}"
-			)
-		else:
-			image_url = get_url(image) if not image.startswith("/") else image
+	if image and employee:
+		# Always use guest-safe photo API so private/public files both load on portal
+		image_url = _photo_api_url(employee=employee)
+	elif image and biometric_id:
+		image_url = _photo_api_url(biometric_id=biometric_id)
+
+	display_name = employee_name or (f"ID {biometric_id}" if biometric_id else "Unknown")
 
 	return {
 		"name": log.get("name"),
 		"biometric_id": biometric_id,
 		"employee": employee,
-		"employee_name": employee_name or f"ID {biometric_id}" if biometric_id else "Unknown",
+		"employee_name": display_name,
 		"image": image_url,
 		"department": department,
 		"designation": designation,
@@ -66,6 +171,7 @@ def build_punch_payload(log_doc_or_dict):
 		"type": cstr(log.get("type") or "Punch"),
 		"ip": cstr(log.get("ip")),
 		"modified": cstr(log.get("modified") or now_datetime()),
+		"unmapped": not bool(employee),
 	}
 
 
@@ -210,12 +316,15 @@ def get_machine_status(force=0):
 
 
 @frappe.whitelist(allow_guest=True)
-def get_latest_punches(since=None, limit=25):
+def get_latest_punches(since=None, limit=40):
 	"""Return recent Attendance Logs enriched with employee image/name."""
-	limit = min(cint(limit) or 25, 50)
+	limit = min(cint(limit) or 40, 80)
 	filters = {}
 	if since:
 		filters["modified"] = [">", since]
+
+	# Incremental polls key off modified; initial load prefers real punch time.
+	order_by = "modified desc" if since else "attendance_date desc, attendance_time desc, modified desc"
 
 	logs = frappe.get_all(
 		"Attendance Logs",
@@ -230,12 +339,12 @@ def get_latest_punches(since=None, limit=25):
 			"modified",
 			"creation",
 		],
-		order_by="modified desc",
+		order_by=order_by,
 		limit_page_length=limit,
 		ignore_permissions=True,
 	)
 
-	# Keep chronological for UI feed (oldest of batch first when rendering new ones)
+	# Chronological (oldest of batch first) so the UI can prepend newest last / on top
 	logs = list(reversed(logs))
 	machine_status = get_machine_status(force=0)
 	return {
@@ -257,15 +366,15 @@ def get_punch_portal_boot():
 @frappe.whitelist(allow_guest=True)
 def get_employee_photo(biometric_id=None, employee=None):
 	"""Serve employee photo for punch portal (guest-safe)."""
-	filters = {}
+	image = None
 	if employee:
-		filters["name"] = employee
+		image = frappe.db.get_value("Employee", employee, "image")
 	elif biometric_id:
-		filters["biometric_id"] = cstr(biometric_id).strip()
+		emp = _get_employee_by_biometric(biometric_id)
+		image = emp.image if emp else None
 	else:
 		frappe.throw("Employee or biometric_id required")
 
-	image = frappe.db.get_value("Employee", filters, "image")
 	if not image:
 		frappe.throw("No image", frappe.DoesNotExistError)
 

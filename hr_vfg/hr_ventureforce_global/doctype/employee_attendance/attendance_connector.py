@@ -644,23 +644,30 @@ def get_attendance_from_hook():
 
 
 LIVE_SYNC_LOCK_KEY = "attendance_live_sync_running"
-LIVE_SYNC_LOCK_TTL = 120
-LIVE_SYNC_INTERVAL_SECONDS = 15
-LIVE_SYNC_JOB_ID = "attendance_live_sync_daemon"
-LIVE_SYNC_DAEMON_SECONDS = 50 * 60  # run ~50 minutes then exit; watchdog restarts
+LIVE_SYNC_LOCK_TTL = 90
+LIVE_SYNC_TARGET_CYCLE_SECONDS = 25  # ideal target; device full-log download is the floor
+LIVE_SYNC_MIN_SLEEP_SECONDS = 1  # poll again immediately after each pull
+LIVE_SYNC_JOB_ID = "attendance_fast_sync_daemon"
+LIVE_SYNC_LEGACY_JOB_IDS = ("attendance_live_sync_daemon", "attendance_live_sync_loop")
+LIVE_SYNC_DAEMON_SECONDS = 55 * 60  # run ~55 minutes then exit; watchdog restarts
+ZK_USERS_REFRESH_KEY = "attendance_zk_users_refreshed_at"
+ZK_USERS_REFRESH_SECONDS = 30 * 60
+MACHINE_STATUS_CACHE_KEY = "attendance_machine_integration_status"
+# Live-capture over WAN rarely delivers punches and delays the next full pull — keep off by default.
+LIVE_CAPTURE_ENABLED = False
+LIVE_CAPTURE_SECONDS = 12
 
 
 def _cancel_stuck_live_sync_jobs():
-	"""Remove stale RQ scheduled/failed live-sync jobs that block restart."""
+	"""Remove stale RQ live-sync jobs that block restart."""
 	from frappe.utils.background_jobs import create_job_id, get_queue
 
+	job_ids = (LIVE_SYNC_JOB_ID,) + LIVE_SYNC_LEGACY_JOB_IDS
 	for queue_name in ("short", "long", "default"):
 		try:
 			q = get_queue(queue_name)
-			job_id = create_job_id(LIVE_SYNC_JOB_ID)
-			# also clear the old broken enqueue_in job id
-			legacy_id = create_job_id("attendance_live_sync_loop")
-			for jid in (job_id, legacy_id):
+			for raw_id in job_ids:
+				jid = create_job_id(raw_id)
 				job = q.fetch_job(jid)
 				if not job:
 					from rq.job import Job
@@ -684,7 +691,7 @@ def _cancel_stuck_live_sync_jobs():
 
 
 def ensure_attendance_live_sync_loop():
-	"""Minute watchdog: keep a live-poll daemon worker running."""
+	"""Minute watchdog: keep fast live-poll daemon on the short queue."""
 	from frappe.utils.background_jobs import enqueue, is_job_enqueued
 
 	if is_job_enqueued(LIVE_SYNC_JOB_ID):
@@ -693,7 +700,7 @@ def ensure_attendance_live_sync_loop():
 	_cancel_stuck_live_sync_jobs()
 	enqueue(
 		"hr_vfg.hr_ventureforce_global.doctype.employee_attendance.attendance_connector.run_attendance_live_sync_daemon",
-		queue="long",
+		queue="short",
 		timeout=LIVE_SYNC_DAEMON_SECONDS + 120,
 		job_id=LIVE_SYNC_JOB_ID,
 		deduplicate=True,
@@ -701,17 +708,143 @@ def ensure_attendance_live_sync_loop():
 	return {"status": "started"}
 
 
+def _live_capture_worker(machine, seconds, event_queue, stop_event):
+	"""Background thread: stream realtime punches from one ZK device."""
+	import time as _time
+
+	ip = machine.ip
+	port = int(machine.port)
+	password = machine.password or 0
+	conn = None
+	try:
+		zk = ZK(
+			ip,
+			port=port,
+			timeout=10,
+			password=password,
+			force_udp=False,
+			ommit_ping=True,
+		)
+		conn = zk.connect()
+		if not conn:
+			return
+		t_end = _time.time() + seconds
+		for attend in conn.live_capture(new_timeout=2):
+			if stop_event.is_set() or _time.time() >= t_end:
+				conn.end_live_capture = True
+				break
+			if attend is None:
+				continue
+			event_queue.put((machine, attend))
+	except Exception as e:
+		event_queue.put(("error", ip, port, cstr(e)))
+	finally:
+		if conn:
+			try:
+				conn.end_live_capture = True
+				conn.disconnect()
+			except Exception:
+				pass
+
+
+def _insert_live_capture_event(machine, attend):
+	"""Insert one realtime punch; returns True if a new Attendance Log was created."""
+	biometric_id, att_date, att_time, raw = _parse_zk_attendance_row(attend)
+	if not biometric_id or not att_date or not att_time:
+		return False
+	ip_key = f"{machine.ip}:{machine.port}"
+	log_type = _machine_log_type(machine.type, attend)
+	created = _insert_attendance_log_if_missing(
+		biometric_id, str(att_date), str(att_time), log_type, ip_key, raw
+	)
+	if created:
+		frappe.db.commit()
+	return created
+
+
+def _live_listen_machines(machines, seconds=20):
+	"""
+	Listen for realtime punches on all machines in parallel.
+	Inserts arrive as events (usually <2s), covering the gap between full polls.
+	"""
+	import queue
+	import threading
+	import time as _time
+
+	if not machines or seconds <= 0:
+		return 0
+
+	event_queue = queue.Queue()
+	stop_event = threading.Event()
+	threads = []
+	for machine in machines:
+		t = threading.Thread(
+			target=_live_capture_worker,
+			args=(machine, seconds, event_queue, stop_event),
+			daemon=True,
+		)
+		t.start()
+		threads.append(t)
+
+	created = 0
+	t_end = _time.time() + seconds + 2
+	alive = True
+	while _time.time() < t_end and alive:
+		try:
+			item = event_queue.get(timeout=0.5)
+		except queue.Empty:
+			alive = any(t.is_alive() for t in threads)
+			continue
+		if isinstance(item, tuple) and item and item[0] == "error":
+			_, ip, port, err = item
+			_log_attendance_sync_error("Live Capture", err, ip, port)
+			continue
+		machine, attend = item
+		try:
+			if _insert_live_capture_event(machine, attend):
+				created += 1
+		except Exception as e:
+			_log_attendance_sync_error("Live Capture Insert", e, machine.ip, machine.port)
+
+	stop_event.set()
+	for t in threads:
+		t.join(timeout=5)
+	return created
+
+
 def run_attendance_live_sync_daemon():
-	"""Continuously poll machines every ~15s (replaces broken RQ enqueue_in loop)."""
+	"""
+	Continuously pull both machines in parallel with almost no idle gap.
+
+	Hard floor: ZK only supports full attendance download (~20-35s per device over
+	WAN). Live-capture is optional and off by default — on this network it usually
+	does not push punches and only delayed the next poll (causing 1–1.5 min lag).
+	"""
 	import time
 
 	deadline = time.time() + LIVE_SYNC_DAEMON_SECONDS
 	while time.time() < deadline:
+		t0 = time.time()
 		try:
 			sync_attendance_logs_live(reschedule=False)
 		except Exception as e:
 			_log_attendance_sync_error("Live Sync Daemon", e)
-		time.sleep(LIVE_SYNC_INTERVAL_SECONDS)
+
+		if LIVE_CAPTURE_ENABLED:
+			try:
+				hr_settings = frappe.get_single("V HR Settings")
+				machines = [
+					m
+					for m in (hr_settings.get("attendance_machine") or [])
+					if m.ip and m.port
+				]
+				_live_listen_machines(machines, seconds=LIVE_CAPTURE_SECONDS)
+			except Exception as e:
+				_log_attendance_sync_error("Live Capture Window", e)
+
+		elapsed = time.time() - t0
+		# Re-poll immediately; only a tiny pause to avoid tight CPU spin on errors.
+		time.sleep(LIVE_SYNC_MIN_SLEEP_SECONDS if elapsed > 5 else 2)
 
 
 def _parse_zk_attendance_row(attend):
@@ -802,9 +935,6 @@ def _insert_attendance_log_if_missing(biometric_id, att_date, att_time, log_type
 	return True
 
 
-MACHINE_STATUS_CACHE_KEY = "attendance_machine_integration_status"
-
-
 def _record_machine_integration_status(machines_status, created_total=0):
 	"""Persist last real machine integration result for Punch Portal."""
 	online = sum(1 for m in machines_status if m.get("online"))
@@ -822,85 +952,192 @@ def _record_machine_integration_status(machines_status, created_total=0):
 	return payload
 
 
-def _sync_machine_attendance_logs_live(machine, from_date, to_date):
-	ip = machine.ip
-	port = machine.port
-	password = machine.password or 0
+def _should_refresh_zk_users():
+	cache = frappe.cache()
+	if cache.get_value(ZK_USERS_REFRESH_KEY):
+		return False
+	cache.set_value(ZK_USERS_REFRESH_KEY, 1, expires_in_sec=ZK_USERS_REFRESH_SECONDS)
+	return True
+
+
+def _fetch_zk_attendance_raw(ip, port, password=0, refresh_users=False):
+	"""
+	Device I/O only (thread-safe). Downloads attendance; optionally user names.
+	ZK has no date filter — full log download is required (~20s on large devices).
+	"""
+	import time as _time
+
 	ip_key = f"{ip}:{port}"
-	conn = None
-	created = 0
-	status = {
+	result = {
 		"ip": ip,
 		"port": str(port),
-		"type": machine.type or "Both",
+		"ip_key": ip_key,
 		"online": False,
 		"integrated": False,
 		"error": "",
-		"created": 0,
+		"attendance": [],
+		"users": None,
+		"fetch_seconds": 0,
+		"record_count": 0,
 	}
-
-	zk = ZK(
-		ip,
-		port=int(port),
-		timeout=20,
-		password=password,
-		force_udp=False,
-		ommit_ping=True,
-	)
+	conn = None
+	t0 = _time.time()
 	try:
+		zk = ZK(
+			ip,
+			port=int(port),
+			timeout=20,
+			password=password or 0,
+			force_udp=False,
+			ommit_ping=True,
+		)
 		conn = zk.connect()
 		if not conn:
-			status["error"] = "Connect failed"
-			return created, status
-
-		status["online"] = True
-		status["integrated"] = True
-		attendance = conn.get_attendance() or []
-		from_dt = getdate(from_date)
-		to_dt = getdate(to_date)
-
-		for attend in attendance:
-			biometric_id, att_date, att_time, raw = _parse_zk_attendance_row(attend)
-			if not biometric_id or not att_date or not att_time:
-				continue
+			result["error"] = "Connect failed"
+			return result
+		result["online"] = True
+		result["integrated"] = True
+		if refresh_users:
 			try:
-				row_date = getdate(att_date)
+				result["users"] = conn.get_users() or []
 			except Exception:
-				continue
-			if row_date < from_dt or row_date > to_dt:
-				continue
-
-			log_type = _machine_log_type(machine.type, attend)
-			if _insert_attendance_log_if_missing(
-				biometric_id, str(att_date), str(att_time), log_type, ip_key, raw
-			):
-				created += 1
-
-		status["created"] = created
-		if created:
-			frappe.db.commit()
+				result["users"] = None
+		attendance = conn.get_attendance() or []
+		result["attendance"] = attendance
+		result["record_count"] = len(attendance)
 	except Exception as e:
-		status["error"] = cstr(e)
-		_log_attendance_sync_error("Live Sync", e, ip, port)
+		result["error"] = cstr(e)
 	finally:
 		if conn:
 			try:
 				conn.disconnect()
 			except Exception:
 				pass
+		result["fetch_seconds"] = round(_time.time() - t0, 2)
+	return result
 
+
+def _existing_punch_keys(from_date, to_date, ip_keys):
+	"""One query for yesterday+today punches instead of per-row exists checks."""
+	if not ip_keys:
+		return set()
+	placeholders = ", ".join(["%s"] * len(ip_keys))
+	rows = frappe.db.sql(
+		f"""
+		select biometric_id, attendance_date, attendance_time, ip
+		from `tabAttendance Logs`
+		where attendance_date between %s and %s
+		  and ip in ({placeholders})
+		""",
+		[str(from_date), str(to_date), *ip_keys],
+	)
+	return {
+		(cstr(bio), cstr(d), cstr(t), cstr(ip))
+		for bio, d, t, ip in rows
+	}
+
+
+def _collect_window_punches(attendance, machine_type, ip_key, from_dt, to_dt):
+	"""
+	Walk newest→oldest (device log is ascending). Stop once older than from_dt.
+	"""
+	rows = []
+	for attend in reversed(attendance or []):
+		biometric_id, att_date, att_time, raw = _parse_zk_attendance_row(attend)
+		if not biometric_id or not att_date or not att_time:
+			continue
+		try:
+			row_date = getdate(att_date)
+		except Exception:
+			continue
+		if row_date > to_dt:
+			continue
+		if row_date < from_dt:
+			break
+		rows.append(
+			{
+				"biometric_id": biometric_id,
+				"attendance_date": str(att_date),
+				"attendance_time": str(att_time),
+				"type": _machine_log_type(machine_type, attend),
+				"ip": ip_key,
+				"raw": raw,
+			}
+		)
+	return rows
+
+
+def _sync_machine_attendance_logs_live(machine, from_date, to_date, refresh_users=False):
+	"""Legacy single-machine path (kept for manual calls). Prefer parallel sync."""
+	fetched = _fetch_zk_attendance_raw(
+		machine.ip, machine.port, machine.password or 0, refresh_users=refresh_users
+	)
+	status = {
+		"ip": fetched["ip"],
+		"port": fetched["port"],
+		"type": machine.type or "Both",
+		"online": fetched["online"],
+		"integrated": fetched["integrated"],
+		"error": fetched["error"],
+		"created": 0,
+		"fetch_seconds": fetched["fetch_seconds"],
+		"device_records": fetched["record_count"],
+	}
+	if fetched.get("users"):
+		try:
+			from hr_vfg.hr_ventureforce_global.punch_portal import remember_zk_users
+
+			remember_zk_users(fetched["users"])
+		except Exception:
+			pass
+	if not fetched["online"]:
+		if fetched["error"]:
+			_log_attendance_sync_error("Live Sync", fetched["error"], machine.ip, machine.port)
+		return 0, status
+
+	from_dt = getdate(from_date)
+	to_dt = getdate(to_date)
+	ip_key = fetched["ip_key"]
+	candidates = _collect_window_punches(
+		fetched["attendance"], machine.type, ip_key, from_dt, to_dt
+	)
+	existing = _existing_punch_keys(from_dt, to_dt, [ip_key])
+	created = 0
+	for row in candidates:
+		key = (row["biometric_id"], row["attendance_date"], row["attendance_time"], row["ip"])
+		if key in existing:
+			continue
+		if _insert_attendance_log_if_missing(
+			row["biometric_id"],
+			row["attendance_date"],
+			row["attendance_time"],
+			row["type"],
+			row["ip"],
+			row["raw"],
+		):
+			created += 1
+			existing.add(key)
+	status["created"] = created
+	if created:
+		frappe.db.commit()
 	return created, status
 
 
 @frappe.whitelist()
 def sync_attendance_logs_live(reschedule=False):
 	"""
-	Near real-time poll: pull yesterday+today punches and insert
-	any missing rows into Attendance Logs only (no delete / no full rebuild).
+	Near real-time poll: pull yesterday+today punches and insert missing
+	Attendance Logs only (no delete / no full rebuild).
 
-	Runs as a short scheduled job (not a long-queue daemon) so Get Attendance
-	jobs are not blocked.
+	Optimizations vs old path:
+	- fetch In/Out machines in parallel (~22s wall vs ~45s sequential)
+	- skip full user list most cycles
+	- scan newest device rows only (sorted ascending log)
+	- one bulk existence query for the date window
 	"""
+	import time as _time
+	from concurrent.futures import ThreadPoolExecutor, as_completed
+
 	cache = frappe.cache()
 	if cache.get_value(LIVE_SYNC_LOCK_KEY):
 		return {"status": "skipped", "reason": "already running"}
@@ -908,25 +1145,120 @@ def sync_attendance_logs_live(reschedule=False):
 	cache.set_value(LIVE_SYNC_LOCK_KEY, 1, expires_in_sec=LIVE_SYNC_LOCK_TTL)
 	created_total = 0
 	machines_status = []
+	t_job = _time.time()
 	try:
 		hr_settings = frappe.get_single("V HR Settings")
-		machines = hr_settings.get("attendance_machine") or []
+		machines = [
+			m for m in (hr_settings.get("attendance_machine") or []) if m.ip and m.port
+		]
 		if not machines:
 			_record_machine_integration_status([], 0)
-			return {"status": "ok", "created": 0, "integrated": False}
+			return {"status": "ok", "created": 0, "integrated": False, "seconds": 0}
 
-		args = {
-			"from_date": add_days(today(), -1),
-			"to_date": getdate(today()),
-		}
+		from_dt = getdate(add_days(today(), -1))
+		to_dt = getdate(today())
+		refresh_users = _should_refresh_zk_users()
+
+		# Parallel device download (dominant cost ~20s each)
+		fetched_by_key = {}
+		with ThreadPoolExecutor(max_workers=max(1, len(machines))) as pool:
+			futures = {
+				pool.submit(
+					_fetch_zk_attendance_raw,
+					m.ip,
+					m.port,
+					m.password or 0,
+					refresh_users,
+				): m
+				for m in machines
+			}
+			for fut in as_completed(futures):
+				machine = futures[fut]
+				try:
+					fetched_by_key[f"{machine.ip}:{machine.port}"] = (machine, fut.result())
+				except Exception as e:
+					fetched_by_key[f"{machine.ip}:{machine.port}"] = (
+						machine,
+						{
+							"ip": machine.ip,
+							"port": str(machine.port),
+							"ip_key": f"{machine.ip}:{machine.port}",
+							"online": False,
+							"integrated": False,
+							"error": cstr(e),
+							"attendance": [],
+							"users": None,
+							"fetch_seconds": 0,
+							"record_count": 0,
+						},
+					)
+
+		ip_keys = []
+		all_candidates = []
 		for machine in machines:
-			if not machine.ip or not machine.port:
+			key = f"{machine.ip}:{machine.port}"
+			machine, fetched = fetched_by_key[key]
+			status = {
+				"ip": fetched["ip"],
+				"port": fetched["port"],
+				"type": machine.type or "Both",
+				"online": fetched["online"],
+				"integrated": fetched["integrated"],
+				"error": fetched.get("error") or "",
+				"created": 0,
+				"fetch_seconds": fetched.get("fetch_seconds") or 0,
+				"device_records": fetched.get("record_count") or 0,
+			}
+			if fetched.get("users"):
+				try:
+					from hr_vfg.hr_ventureforce_global.punch_portal import remember_zk_users
+
+					remember_zk_users(fetched["users"])
+				except Exception:
+					pass
+			if not fetched["online"]:
+				if status["error"]:
+					_log_attendance_sync_error(
+						"Live Sync", status["error"], machine.ip, machine.port
+					)
+				machines_status.append(status)
 				continue
-			created, status = _sync_machine_attendance_logs_live(
-				machine, args["from_date"], args["to_date"]
+
+			ip_keys.append(fetched["ip_key"])
+			candidates = _collect_window_punches(
+				fetched["attendance"], machine.type, fetched["ip_key"], from_dt, to_dt
 			)
-			created_total += created
+			status["_candidates"] = candidates
 			machines_status.append(status)
+
+		existing = _existing_punch_keys(from_dt, to_dt, ip_keys)
+		for status in machines_status:
+			candidates = status.pop("_candidates", [])
+			created = 0
+			for row in candidates:
+				key = (
+					row["biometric_id"],
+					row["attendance_date"],
+					row["attendance_time"],
+					row["ip"],
+				)
+				if key in existing:
+					continue
+				if _insert_attendance_log_if_missing(
+					row["biometric_id"],
+					row["attendance_date"],
+					row["attendance_time"],
+					row["type"],
+					row["ip"],
+					row["raw"],
+				):
+					created += 1
+					created_total += 1
+					existing.add(key)
+			status["created"] = created
+
+		if created_total:
+			frappe.db.commit()
 
 		integration = _record_machine_integration_status(machines_status, created_total)
 		return {
@@ -934,6 +1266,7 @@ def sync_attendance_logs_live(reschedule=False):
 			"created": created_total,
 			"integrated": integration.get("integrated"),
 			"machines": machines_status,
+			"seconds": round(_time.time() - t_job, 2),
 		}
 	except Exception as e:
 		_log_attendance_sync_error("Live Sync Job", e)
