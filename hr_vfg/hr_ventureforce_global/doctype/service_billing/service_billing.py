@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 
 class ServiceBilling(Document):
@@ -125,23 +125,71 @@ class ServiceBilling(Document):
 			title=_("Linked Purchase Invoice"),
 		)
 
-	def _mark_meal_forms_billed(self):
-		for row in self.meal_forms:
-			if not row.meal_form:
+	def _iter_linked_meal_forms(self):
+		"""Meal Forms can be linked via meal_forms table OR service_details (repairing etc.)."""
+		seen = set()
+		for row in self.meal_forms or []:
+			name = (row.meal_form or "").strip()
+			if not name or name in seen:
 				continue
+			seen.add(name)
+			yield name, flt(row.total_amount)
+
+		for row in self.service_details or []:
+			name = (getattr(row, "meal_form", None) or "").strip()
+			if not name or name in seen:
+				continue
+			seen.add(name)
+			yield name, flt(getattr(row, "amount", 0))
+
+	def _ensure_summary_from_meal_forms(self):
+		"""Build Summary from Meal Forms using Meal Type → Item mapping."""
+		by_item = {}
+		for row in self.meal_forms or []:
+			if not row.meal_type:
+				continue
+			item = frappe.db.get_value("Meal Type", row.meal_type, "item")
+			if not item:
+				continue
+			by_item.setdefault(item, {"qty": 0.0, "amount": 0.0})
+			by_item[item]["qty"] += flt(row.total_qty)
+			by_item[item]["amount"] += flt(row.total_amount)
+
+		for item, vals in by_item.items():
+			qty = vals["qty"] or 1
+			amount = vals["amount"]
+			self.append(
+				"summary",
+				{
+					"item": item,
+					"qty": qty,
+					"amount": amount,
+					"rate": amount / qty if qty else amount,
+				},
+			)
+
+	def _mark_meal_forms_billed(self):
+		from hr_vfg.hr_ventureforce_global.doctype.meal_form.meal_form import (
+			update_meal_form_status,
+		)
+
+		for meal_form, _amount in self._iter_linked_meal_forms():
 			frappe.db.set_value(
 				"Meal Form",
-				row.meal_form,
+				meal_form,
 				{
 					"billed": 1,
 					"service_billing": self.name,
 				},
 			)
+			update_meal_form_status(meal_form)
 
 	def _unmark_meal_forms(self):
-		for row in self.meal_forms:
-			if not row.meal_form:
-				continue
+		from hr_vfg.hr_ventureforce_global.doctype.meal_form.meal_form import (
+			update_meal_form_status,
+		)
+
+		for meal_form, _amount in self._iter_linked_meal_forms():
 			values = {
 				"billed": 0,
 				"service_billing": None,
@@ -154,7 +202,8 @@ class ServiceBilling(Document):
 						"purchase_invoice": None,
 					}
 				)
-			frappe.db.set_value("Meal Form", row.meal_form, values)
+			frappe.db.set_value("Meal Form", meal_form, values)
+			update_meal_form_status(meal_form)
 
 	def _create_purchase_invoice(self):
 		if self.purchase_invoice:
@@ -232,11 +281,53 @@ class ServiceBilling(Document):
 			pi.bill_no = supplier_invoice_no
 			pi.bill_date = supplier_invoice_date
 
+			# Prefer aggregated summary when meal forms exist but summary was not built
+			if not self.summary and self.meal_forms:
+				self._ensure_summary_from_meal_forms()
+
+			if self.summary:
+				for row in self.summary:
+					if not row.item:
+						continue
+					qty = flt(row.qty) or 1
+					amount = flt(row.amount)
+					rate = flt(row.rate)
+					if not rate and amount and qty:
+						rate = amount / qty
+					self._append_pi_item(
+						pi,
+						row.item,
+						qty,
+						rate or amount,
+						company_cost_center,
+						service_type_cost_center,
+						company,
+						row.cost_center,
+					)
+				self._finalize_purchase_invoice(pi, supplier)
+				return
+
 			item = None
 			if self.service_type:
 				item = frappe.db.get_value("Meal Type", self.service_type, "item")
 			if not item:
-				frappe.throw(_("Service Detail rows are required or set Item on Meal Type."))
+				missing = sorted(
+					{
+						row.meal_type
+						for row in (self.meal_forms or [])
+						if row.meal_type
+						and not frappe.db.get_value("Meal Type", row.meal_type, "item")
+					}
+				)
+				msg = _(
+					"Cannot create Purchase Invoice: Summary/Service Detail is empty. "
+					"Set Item on Meal Type, then click Fetch Data (or fill Summary)."
+				)
+				if missing:
+					msg += "<br>" + _("Meal Types missing Item: {0}").format(
+						", ".join(frappe.bold(m) for m in missing)
+					)
+				frappe.throw(msg)
 
 			qty = flt(self.total_qty) or 1
 			amount = flt(self.total_amount)
@@ -315,9 +406,38 @@ class ServiceBilling(Document):
 			},
 		)
 
+	def _ensure_supplier_allows_pi_without_po_pr(self, supplier):
+		"""Service Billing never uses PO/PR; allow PI when Buying Settings require them.
+
+		ERPNext Buying Settings can mandate Purchase Order / Receipt on every PI.
+		Meal/service invoices from this doctype are direct bills, so enable the
+		standard Supplier overrides instead of forcing a dummy PO.
+		"""
+		if not supplier:
+			return
+		flags = frappe.db.get_value(
+			"Supplier",
+			supplier,
+			[
+				"allow_purchase_invoice_creation_without_purchase_order",
+				"allow_purchase_invoice_creation_without_purchase_receipt",
+			],
+			as_dict=True,
+		)
+		if not flags:
+			return
+		updates = {}
+		if not cint(flags.allow_purchase_invoice_creation_without_purchase_order):
+			updates["allow_purchase_invoice_creation_without_purchase_order"] = 1
+		if not cint(flags.allow_purchase_invoice_creation_without_purchase_receipt):
+			updates["allow_purchase_invoice_creation_without_purchase_receipt"] = 1
+		if updates:
+			frappe.db.set_value("Supplier", supplier, updates, update_modified=False)
+
 	def _finalize_purchase_invoice(self, pi, supplier):
 		# Keep related PI under the Service Billing owner (creator),
 		# even when another user (e.g. Administrator) submits the billing.
+		self._ensure_supplier_allows_pi_without_po_pr(supplier)
 		source_owner = self.owner or frappe.session.user
 		pi.owner = source_owner
 		pi.insert(ignore_permissions=True)
@@ -345,44 +465,79 @@ class ServiceBilling(Document):
 		self.purchase_invoice = pi.name
 		self.db_set("supplier", supplier)
 
-		for row in self.meal_forms:
-			if not row.meal_form:
-				continue
+		from hr_vfg.hr_ventureforce_global.doctype.meal_form.meal_form import (
+			update_meal_form_status,
+		)
+
+		for meal_form, amount in self._iter_linked_meal_forms():
 			frappe.db.set_value(
 				"Meal Form",
-				row.meal_form,
+				meal_form,
 				{
+					"billed": 1,
+					"service_billing": self.name,
 					"invoiced": 1,
-					"invoiced_amount": flt(row.total_amount),
+					"invoiced_amount": amount,
 					"purchase_invoice": pi.name,
 				},
 			)
+			update_meal_form_status(meal_form)
 
 
 def update_service_billing_status_from_pi(doc, method=None):
-	"""Keep Service Billing status in sync when Purchase Invoice changes."""
-	sb_name = frappe.db.get_value("Service Billing", {"purchase_invoice": doc.name}, "name")
-	if not sb_name:
-		return
+	"""Keep Service Billing + Meal Form status in sync when Purchase Invoice changes."""
+	from hr_vfg.hr_ventureforce_global.doctype.meal_form.meal_form import (
+		update_meal_forms_status_from_pi,
+	)
 
-	sb = frappe.get_doc("Service Billing", sb_name)
-	if sb.docstatus != 1:
-		return
-	sb.set_status(update=True)
+	sb_name = frappe.db.get_value("Service Billing", {"purchase_invoice": doc.name}, "name")
+	if sb_name:
+		sb = frappe.get_doc("Service Billing", sb_name)
+		if sb.docstatus == 1:
+			sb.set_status(update=True)
+
+	update_meal_forms_status_from_pi(doc, method)
 
 
 def clear_service_billing_link_on_pi_cancel(doc, method=None):
 	"""When PI is cancelled/deleted, free the Service Billing link and reset meal form invoice flags."""
+	from hr_vfg.hr_ventureforce_global.doctype.meal_form.meal_form import (
+		update_meal_form_status,
+	)
+
 	sb_name = frappe.db.get_value("Service Billing", {"purchase_invoice": doc.name}, "name")
-	if not sb_name:
-		return
+	meal_forms = frappe.get_all(
+		"Meal Form",
+		filters={"purchase_invoice": doc.name},
+		pluck="name",
+	)
 
-	sb = frappe.get_doc("Service Billing", sb_name)
-	frappe.db.set_value("Service Billing", sb_name, "purchase_invoice", None, update_modified=False)
+	if sb_name:
+		sb = frappe.get_doc("Service Billing", sb_name)
+		frappe.db.set_value(
+			"Service Billing", sb_name, "purchase_invoice", None, update_modified=False
+		)
 
-	for row in sb.meal_forms:
-		if not row.meal_form:
-			continue
+		for row in sb.meal_forms:
+			if row.meal_form and row.meal_form not in meal_forms:
+				meal_forms.append(row.meal_form)
+		for row in sb.service_details:
+			mf = getattr(row, "meal_form", None)
+			if mf and mf not in meal_forms:
+				meal_forms.append(mf)
+
+		sb.purchase_invoice = None
+		if sb.docstatus == 1:
+			sb.set_status(update=True)
+		elif sb.docstatus == 2:
+			frappe.db.set_value(
+				"Service Billing",
+				sb_name,
+				{"status": "Cancelled", "per_paid": 0},
+				update_modified=False,
+			)
+
+	for mf in meal_forms:
 		values = {}
 		if frappe.db.has_column("Meal Form", "invoiced"):
 			values.update(
@@ -393,19 +548,8 @@ def clear_service_billing_link_on_pi_cancel(doc, method=None):
 				}
 			)
 		if values:
-			frappe.db.set_value("Meal Form", row.meal_form, values)
-
-	# Reload link cleared for status calc
-	sb.purchase_invoice = None
-	if sb.docstatus == 1:
-		sb.set_status(update=True)
-	elif sb.docstatus == 2:
-		frappe.db.set_value(
-			"Service Billing",
-			sb_name,
-			{"status": "Cancelled", "per_paid": 0},
-			update_modified=False,
-		)
+			frappe.db.set_value("Meal Form", mf, values)
+		update_meal_form_status(mf)
 
 
 @frappe.whitelist()
