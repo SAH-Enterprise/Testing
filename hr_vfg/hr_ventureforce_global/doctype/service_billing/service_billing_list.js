@@ -1,5 +1,5 @@
 frappe.listview_settings["Service Billing"] = {
-	add_fields: ["status", "per_paid", "purchase_invoice", "total_amount", "total_service_amount"],
+	add_fields: ["status", "per_paid", "purchase_invoice", "amount", "total_amount", "total_service_amount"],
 	get_indicator(doc) {
 		const status_colors = {
 			Draft: "red",

@@ -41,6 +41,8 @@ class ServiceBilling(Document):
 		self.total_qty = sum(flt(row.total_qty) for row in self.meal_forms)
 		self.total_amount = sum(flt(row.total_amount) for row in self.meal_forms)
 		self.total_service_amount = sum(flt(row.amount) for row in self.service_details)
+		# Single amount for list/reporting: meal forms + service detail
+		self.amount = flt(self.total_amount) + flt(self.total_service_amount)
 
 	def _set_supplier(self):
 		if not self.service_provider:

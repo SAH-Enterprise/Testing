@@ -123,6 +123,7 @@ frappe.ui.form.on("Service Billing", {
 		frm.set_value("total_qty", totalQty);
 		frm.set_value("total_amount", totalAmount);
 		frm.set_value("total_service_amount", totalServiceAmount);
+		frm.set_value("amount", (totalAmount || 0) + (totalServiceAmount || 0));
 	},
 
 	summary_mode(frm) {

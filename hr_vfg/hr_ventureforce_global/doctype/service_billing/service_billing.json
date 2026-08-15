@@ -39,6 +39,8 @@
   "total_amount",
   "column_break_total_amount",
   "total_service_amount",
+  "column_break_amount",
+  "amount",
   "section_break_billing",
   "supplier",
   "purchase_invoice",
@@ -224,6 +226,17 @@
    "fieldname": "total_service_amount",
    "fieldtype": "Float",
    "label": "Service Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_amount",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
    "read_only": 1
   },
   {
