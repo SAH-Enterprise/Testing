@@ -499,6 +499,24 @@ def update_service_billing_status_from_pi(doc, method=None):
 	update_meal_forms_status_from_pi(doc, method)
 
 
+def update_service_billing_status_from_payment_entry(doc, method=None):
+	"""Payment Entry updates PI outstanding via db_set — sync Service Billing from PE refs."""
+	pi_names = set()
+	for ref in doc.get("references") or []:
+		if (ref.reference_doctype or "") != "Purchase Invoice":
+			continue
+		if not ref.reference_name:
+			continue
+		pi_names.add(ref.reference_name)
+
+	for pi_name in pi_names:
+		# Reuse PI-based updater (also refreshes Meal Forms)
+		update_service_billing_status_from_pi(
+			frappe._dict(name=pi_name),
+			method=method,
+		)
+
+
 def clear_service_billing_link_on_pi_cancel(doc, method=None):
 	"""When PI is cancelled/deleted, free the Service Billing link and reset meal form invoice flags."""
 	from hr_vfg.hr_ventureforce_global.doctype.meal_form.meal_form import (

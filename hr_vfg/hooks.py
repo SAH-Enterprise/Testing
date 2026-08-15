@@ -139,6 +139,10 @@ doc_events = {
 		"on_cancel": "hr_vfg.hr_ventureforce_global.doctype.service_billing.service_billing.clear_service_billing_link_on_pi_cancel",
 		"on_trash": "hr_vfg.hr_ventureforce_global.doctype.service_billing.service_billing.clear_service_billing_link_on_pi_cancel",
 	},
+	"Payment Entry": {
+		"on_submit": "hr_vfg.hr_ventureforce_global.doctype.service_billing.service_billing.update_service_billing_status_from_payment_entry",
+		"on_cancel": "hr_vfg.hr_ventureforce_global.doctype.service_billing.service_billing.update_service_billing_status_from_payment_entry",
+	},
 }
 
 # Scheduled Tasks
