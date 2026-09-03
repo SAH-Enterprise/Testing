@@ -140,46 +140,82 @@ class CustomSalarySlip(SalarySlip):
         additional_salary.submit()
         return additional_salary.name
 
-    def add_employee_advance_deductions(self):
-        """Deduct outstanding Employee Advances from salary.
+    def _period_advance_additional_salaries(self):
+        """Additional Salary already posted against Employee Advance in this slip period.
 
-        - Includes advances from previous months (not only current period)
-        - Uses Additional Salary so Employee Advance.return_amount is updated
-        - Caps total advance deduction so net pay does not go negative
+        Submitting Additional Salary marks the advance Returned. The slip must still
+        deduct that amount even though the advance is no longer Paid/Unpaid.
         """
+        return frappe.get_all(
+            "Additional Salary",
+            filters={
+                "employee": self.employee,
+                "ref_doctype": "Employee Advance",
+                "docstatus": 1,
+                "disabled": 0,
+                "payroll_date": ["between", [self.start_date, self.end_date]],
+            },
+            fields=["name", "amount", "salary_component", "ref_docname"],
+        )
+
+    def add_employee_advance_deductions(self):
+        """Deduct Employee Advances from salary.
+
+        - Keeps Additional Salary already created for this payroll (advance may be Returned)
+        - Also recovers Paid/Unpaid outstanding advances from prior months
+        - Caps newly created recovery so net pay does not go negative
+        """
+        period_ads = self._period_advance_additional_salaries()
         advances = self._get_outstanding_salary_advances()
-        if not advances:
+        if not period_ads and not advances:
             return
 
         deduction_component = self.get_advance_deduction_component()
         if not deduction_component:
-            frappe.throw(
-                _("No 'Advance' deduction component found in the assigned Salary Structure for this employee.")
-            )
+            if period_ads:
+                deduction_component = period_ads[0].salary_component
+            else:
+                frappe.throw(
+                    _("No 'Advance' deduction component found in the assigned Salary Structure for this employee.")
+                )
 
-        # Room for advance recovery after other non-advance deductions
-        non_advance_deductions = sum(
-            flt(d.amount)
-            for d in self.get("deductions", [])
-            if "advance" not in (d.salary_component or "").lower()
-        )
-        available_for_advance = max(flt(self.gross_pay) - flt(non_advance_deductions), 0)
-        if available_for_advance <= 0:
-            return
-
-        # Drop only unlinked advance rows; keep Additional Salary rows and rebuild below
+        # Drop only unlinked / structure placeholder rows. Never drop Additional Salary lines.
         for i in reversed(range(len(self.get("deductions", [])))):
             row = self.deductions[i]
             if "advance" in (row.salary_component or "").lower() and not row.additional_salary:
                 self.remove(row)
 
-        # Remove current-period advance AS rows from slip; will re-add after ensuring AS docs
-        for i in reversed(range(len(self.get("deductions", [])))):
-            row = self.deductions[i]
-            if "advance" in (row.salary_component or "").lower():
-                self.remove(row)
+        on_slip = {
+            d.additional_salary
+            for d in self.get("deductions", [])
+            if d.additional_salary
+        }
 
-        remaining_room = available_for_advance
+        for ads in period_ads:
+            if ads.name in on_slip:
+                continue
+            self.append(
+                "deductions",
+                {
+                    "salary_component": ads.salary_component or deduction_component,
+                    "amount": flt(ads.amount),
+                    "additional_salary": ads.name,
+                },
+            )
+            on_slip.add(ads.name)
+
+        non_advance_deductions = sum(
+            flt(d.amount)
+            for d in self.get("deductions", [])
+            if "advance" not in (d.salary_component or "").lower()
+        )
+        already_advance = sum(
+            flt(d.amount)
+            for d in self.get("deductions", [])
+            if "advance" in (d.salary_component or "").lower()
+        )
+        remaining_room = max(flt(self.gross_pay) - flt(non_advance_deductions) - flt(already_advance), 0)
+
         for adv in advances:
             if remaining_room <= 0:
                 break
@@ -196,22 +232,16 @@ class CustomSalarySlip(SalarySlip):
                 fields=["name", "amount"],
                 limit=1,
             )
-
             if existing:
-                # AS submit already updates return_amount — still must keep the slip line
-                as_name = existing[0].name
-                post_amount = min(flt(existing[0].amount), remaining_room)
-            else:
-                unclaimed = self._advance_unclaimed_amount(adv)
-                if unclaimed <= 0:
-                    continue
-                post_amount = min(unclaimed, remaining_room)
-                as_name = self._ensure_advance_additional_salary(
-                    adv.name, post_amount, deduction_component
-                )
-                if not as_name:
-                    continue
+                continue
 
+            unclaimed = self._advance_unclaimed_amount(adv)
+            if unclaimed <= 0:
+                continue
+            post_amount = min(unclaimed, remaining_room)
+            as_name = self._ensure_advance_additional_salary(
+                adv.name, post_amount, deduction_component
+            )
             if post_amount <= 0 or not as_name:
                 continue
 

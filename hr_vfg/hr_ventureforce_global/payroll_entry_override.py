@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt, time_diff_in_hours, get_datetime, now_datetime
 from hrms.payroll.doctype.payroll_entry.payroll_entry import PayrollEntry
 from hr_vfg.hr_ventureforce_global.custom_events import create_salary_slips_for_employees
 from hr_vfg.hr_ventureforce_global.payroll_accounting_fix import (
@@ -9,6 +9,160 @@ from hr_vfg.hr_ventureforce_global.payroll_accounting_fix import (
 )
 
 PARTY_REQUIRED_ACCOUNT_TYPES = ("Receivable", "Payable")
+
+
+def get_salary_slip_job_status(payroll_entry_name: str) -> dict:
+	"""Return slip creation progress + background job state for Payroll Entry intro."""
+	pe = frappe.db.get_value(
+		"Payroll Entry",
+		payroll_entry_name,
+		[
+			"name",
+			"status",
+			"docstatus",
+			"salary_slips_created",
+			"salary_slips_submitted",
+			"number_of_employees",
+			"error_message",
+			"modified",
+			"creation",
+		],
+		as_dict=True,
+	)
+	if not pe:
+		return {"state": "missing"}
+
+	employee_count = cint(pe.number_of_employees) or frappe.db.count(
+		"Payroll Employee Detail", {"parent": payroll_entry_name}
+	)
+	slip_count = frappe.db.count(
+		"Salary Slip", {"payroll_entry": payroll_entry_name, "docstatus": ["<", 2]}
+	)
+	waiting_hours = time_diff_in_hours(now_datetime(), get_datetime(pe.modified)) or 0
+
+	job = _find_salary_slip_rq_job(payroll_entry_name)
+
+	if cint(pe.salary_slips_created) and slip_count:
+		state = "done"
+		message = _("Salary slips created: {0} of {1}.").format(slip_count, employee_count)
+		indicator = "green"
+	elif pe.status == "Failed" or pe.error_message:
+		state = "failed"
+		message = _(
+			"Salary slip creation <b>failed</b>. Check Error Message below, fix the issue, then retry Create Salary Slips."
+		)
+		indicator = "red"
+	elif job and job.get("status") == "started":
+		state = "running"
+		message = _(
+			"Salary slip creation job is <b>running now</b> ({0} of {1} slips so far). "
+			"Please wait — refresh in a few minutes."
+		).format(slip_count, employee_count)
+		indicator = "blue"
+	elif job and job.get("status") in ("queued", "deferred"):
+		state = "queued"
+		queue_info = ""
+		if job.get("queue_position") is not None:
+			queue_info = _(" Queue position: {0}.").format(job["queue_position"])
+		message = _(
+			"Salary slip creation is <b>queued</b> (not started yet) for {0} employees.{1} "
+			"This is normal for large payrolls — slips will appear after the background worker runs. "
+			"Do not panic if nothing shows for a while."
+		).format(employee_count, queue_info)
+		indicator = "orange"
+	elif pe.docstatus == 1 and not cint(pe.salary_slips_created):
+		# Submitted but no slips and no live job — likely stuck / lost from queue
+		state = "stuck"
+		message = _(
+			"Payroll Entry is submitted but salary slips are <b>not created yet</b> "
+			"({0} of {1}). No active background job found. "
+			"Waiting for about {2} hour(s). Use <b>Create Salary Slips</b> to re-queue, "
+			"or ask admin to check background workers."
+		).format(slip_count, employee_count, flt(waiting_hours, 1))
+		indicator = "red" if waiting_hours >= 1 else "orange"
+	elif pe.status == "Queued":
+		state = "queued"
+		message = _(
+			"Salary slip creation is <b>queued</b>. Background worker will create slips soon. "
+			"Refresh this page to update progress."
+		)
+		indicator = "orange"
+	else:
+		state = "idle"
+		message = ""
+		indicator = "blue"
+
+	return {
+		"state": state,
+		"message": message,
+		"indicator": indicator,
+		"employee_count": employee_count,
+		"slip_count": slip_count,
+		"salary_slips_created": cint(pe.salary_slips_created),
+		"status": pe.status,
+		"waiting_hours": flt(waiting_hours, 2),
+		"job": job,
+	}
+
+
+def _find_salary_slip_rq_job(payroll_entry_name: str) -> dict | None:
+	"""Look for queued/started RQ jobs for this payroll entry's slip creation."""
+	try:
+		from rq.registry import StartedJobRegistry, DeferredJobRegistry
+		from frappe.utils.background_jobs import get_queues
+	except Exception:
+		return None
+
+	job_name = f"create_salary_slips:{payroll_entry_name}"
+
+	def _match(job):
+		if not job:
+			return False
+		try:
+			if getattr(job, "description", None) and job_name in str(job.description):
+				return True
+			fn = str(getattr(job, "func_name", "") or "")
+			if "create_salary_slips" not in fn:
+				return False
+			kwargs = job.kwargs or {}
+			args = kwargs.get("args") or {}
+			pe = args.get("payroll_entry") if hasattr(args, "get") else None
+			return pe == payroll_entry_name
+		except Exception:
+			return False
+
+	# Started
+	for q in get_queues():
+		try:
+			reg = StartedJobRegistry(queue=q)
+			for jid in reg.get_job_ids():
+				job = q.fetch_job(jid)
+				if _match(job):
+					return {"status": "started", "job_id": jid, "queue": q.name}
+		except Exception:
+			continue
+
+	# Queued / deferred
+	for q in get_queues():
+		try:
+			# position in queue
+			for idx, job in enumerate(q.jobs):
+				if _match(job):
+					return {
+						"status": "queued",
+						"job_id": job.id,
+						"queue": q.name,
+						"queue_position": idx + 1,
+					}
+			reg = DeferredJobRegistry(queue=q)
+			for jid in reg.get_job_ids():
+				job = q.fetch_job(jid)
+				if _match(job):
+					return {"status": "deferred", "job_id": jid, "queue": q.name}
+		except Exception:
+			continue
+
+	return None
 
 
 class CustomPayrollEntry(PayrollEntry):
@@ -36,11 +190,34 @@ class CustomPayrollEntry(PayrollEntry):
 					"currency": self.currency,
 				}
 			)
-			if len(employees) > 30:
-				frappe.enqueue(create_salary_slips_for_employees, timeout=600, employees=employees, args=args)
+			if len(employees) > 30 or frappe.flags.enqueue_payroll_entry:
+				self.db_set({"status": "Queued", "error_message": ""})
+				frappe.enqueue(
+					create_salary_slips_for_employees,
+					queue="long",
+					timeout=3000,
+					employees=employees,
+					args=args,
+					publish_progress=False,
+					job_name=f"create_salary_slips:{self.name}",
+				)
+				frappe.msgprint(
+					_(
+						"Salary Slip creation is <b>queued</b> for {0} employees. "
+						"This can take several minutes — do not panic if slips are not visible yet. "
+						"Refresh this page to see progress."
+					).format(len(employees)),
+					title=_("Salary Slips Queued"),
+					indicator="blue",
+				)
 			else:
 				create_salary_slips_for_employees(employees, args, publish_progress=False)
 				self.reload()
+
+	@frappe.whitelist()
+	def get_salary_slip_creation_status(self):
+		"""Queue / progress status for salary slip creation (shown on form intro)."""
+		return get_salary_slip_job_status(self.name)
 
 	@frappe.whitelist()
 	def get_accrual_jv_status(self):

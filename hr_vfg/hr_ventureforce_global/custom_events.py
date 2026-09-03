@@ -247,13 +247,31 @@ def create_salary_slips(self):
 					"currency": self.currency,
 				}
 			)
-			if len(employees) > 30:
-				frappe.enqueue(create_salary_slips_for_employees, timeout=600, employees=employees, args=args)
+			if len(employees) > 30 or frappe.flags.enqueue_payroll_entry:
+				self.db_set({"status": "Queued", "error_message": ""})
+				frappe.enqueue(
+					create_salary_slips_for_employees,
+					queue="long",
+					timeout=3000,
+					employees=employees,
+					args=args,
+					publish_progress=False,
+					job_name=f"create_salary_slips:{self.name}",
+				)
+				frappe.msgprint(
+					_(
+						"Salary Slip creation is <b>queued</b> for {0} employees. "
+						"This can take several minutes — do not panic if slips are not visible yet. "
+						"Refresh this page to see progress."
+					).format(len(employees)),
+					title=_("Salary Slips Queued"),
+					indicator="blue",
+				)
 			else:
 				create_salary_slips_for_employees(employees, args, publish_progress=False)
 				# since this method is called via frm.call this doc needs to be updated manually
 				self.reload()
-				
+
 def _get_payroll_error_message(error):
     message_log = frappe.message_log.pop() if frappe.message_log else str(error)
 
@@ -362,7 +380,9 @@ def _create_salary_slips_for_employees(employees, args, publish_progress=True):
                 salary_slips_not_created.append(emp)
 
         payroll_entry = frappe.get_doc("Payroll Entry", args.payroll_entry)
-        payroll_entry.db_set("salary_slips_created", 1)
+        payroll_entry.db_set(
+            {"salary_slips_created": 1, "status": "Submitted", "error_message": ""}
+        )
         payroll_entry.notify_update()
 
         # Show warning about missing employee advance deductions

@@ -138,9 +138,73 @@ function show_payroll_failure_message(frm) {
     fetch_and_show_gemini_explanation(frm);
 }
 
+function show_salary_slip_queue_intro(frm) {
+	if (frm.is_new() || frm.doc.docstatus === 2) {
+		return;
+	}
+
+	// Already fully done — only show brief success if just created
+	if (cint(frm.doc.salary_slips_created) && cint(frm.doc.salary_slips_submitted)) {
+		return;
+	}
+
+	frm.call({
+		method: "get_salary_slip_creation_status",
+		doc: frm.doc,
+		callback(r) {
+			const data = r.message || {};
+			if (!data.message || data.state === "idle" || data.state === "done") {
+				if (data.state === "done" && !cint(frm.doc.salary_slips_submitted)) {
+					frm.set_intro(
+						__(
+							"Salary slips are ready ({0} of {1}). Next: Submit Salary Slip."
+						).format(data.slip_count || 0, data.employee_count || 0),
+						"green"
+					);
+				}
+				return;
+			}
+
+			frm.set_intro(data.message, data.indicator || "orange");
+
+			// Keep checking while queued / running / stuck
+			if (["queued", "running", "stuck"].includes(data.state) && !frm.__salary_slip_poll) {
+				frm.__salary_slip_poll = setInterval(() => {
+					if (!frm.doc || frm.doc.__unsaved) {
+						return;
+					}
+					frm.call({
+						method: "get_salary_slip_creation_status",
+						doc: frm.doc,
+						callback(res) {
+							const st = res.message || {};
+							if (!st.message) {
+								return;
+							}
+							if (st.state === "done") {
+								clearInterval(frm.__salary_slip_poll);
+								frm.__salary_slip_poll = null;
+								frm.reload_doc();
+								return;
+							}
+							frm.set_intro(st.message, st.indicator || "orange");
+						},
+					});
+				}, 20000);
+			}
+		},
+	});
+}
+
 frappe.ui.form.on("Payroll Entry", {
     refresh: function(frm) {
+        if (frm.__salary_slip_poll) {
+            clearInterval(frm.__salary_slip_poll);
+            frm.__salary_slip_poll = null;
+        }
+
         show_payroll_failure_message(frm);
+        show_salary_slip_queue_intro(frm);
 
         // Add a “Check Attendance” button under the Actions menu
         if (!frm.custom_buttons['Check Attendance']) {

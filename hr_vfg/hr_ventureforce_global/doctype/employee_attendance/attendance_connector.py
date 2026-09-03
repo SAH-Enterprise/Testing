@@ -644,7 +644,7 @@ def get_attendance_from_hook():
 
 
 LIVE_SYNC_LOCK_KEY = "attendance_live_sync_running"
-LIVE_SYNC_LOCK_TTL = 90
+LIVE_SYNC_LOCK_TTL = 120
 LIVE_SYNC_TARGET_CYCLE_SECONDS = 25  # ideal target; device full-log download is the floor
 LIVE_SYNC_MIN_SLEEP_SECONDS = 1  # poll again immediately after each pull
 LIVE_SYNC_JOB_ID = "attendance_fast_sync_daemon"
@@ -986,7 +986,7 @@ def _fetch_zk_attendance_raw(ip, port, password=0, refresh_users=False):
 		zk = ZK(
 			ip,
 			port=int(port),
-			timeout=20,
+			timeout=25,
 			password=password or 0,
 			force_udp=False,
 			ommit_ping=True,
@@ -1232,6 +1232,7 @@ def sync_attendance_logs_live(reschedule=False):
 			machines_status.append(status)
 
 		existing = _existing_punch_keys(from_dt, to_dt, ip_keys)
+		touched_bios = set()
 		for status in machines_status:
 			candidates = status.pop("_candidates", [])
 			created = 0
@@ -1255,10 +1256,21 @@ def sync_attendance_logs_live(reschedule=False):
 					created += 1
 					created_total += 1
 					existing.add(key)
+					touched_bios.add(row["biometric_id"])
 			status["created"] = created
 
 		if created_total:
 			frappe.db.commit()
+			try:
+				from hr_vfg.hr_ventureforce_global.doctype.attendance_logs.attendance_logs import (
+					apply_logs_to_employee_attendance,
+				)
+
+				apply_logs_to_employee_attendance(
+					from_dt, to_dt, biometric_ids=list(touched_bios)
+				)
+			except Exception as e:
+				_log_attendance_sync_error("Apply Logs To Sheets", e)
 
 		integration = _record_machine_integration_status(machines_status, created_total)
 		return {

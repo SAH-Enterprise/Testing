@@ -1,5 +1,6 @@
 {
  "actions": [],
+ "allow_bulk_edit": 1,
  "allow_rename": 1,
  "creation": "2024-10-11 18:04:30.682652",
  "doctype": "DocType",
@@ -66,7 +67,7 @@
    "in_preview": 1,
    "in_standard_filter": 1,
    "label": "Employee",
-   "options": "\nStaff\nLoader"
+   "options": "\nStaff\nLoader\nGuard"
   },
   {
    "columns": 1,
@@ -126,15 +127,18 @@
    "read_only": 1
   }
  ],
+ "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2024-11-01 14:57:44.773207",
+ "modified": "2026-09-02 17:59:59.079087",
  "modified_by": "Administrator",
  "module": "HR VentureForce Global",
  "name": "Detail Meal",
  "owner": "Administrator",
  "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []
